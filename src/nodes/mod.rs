@@ -1,1 +1,1 @@
-/// Contains code for managing the CAN nodes that are connected to FerroFlow, their fields and data types.
+//! Contains code for managing the CAN nodes that are connected to FerroFlow, their fields and data types.

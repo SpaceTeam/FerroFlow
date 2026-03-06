@@ -1,1 +1,1 @@
-/// Code for managing socket connections to the frontend.
+//! Code for managing socket connections to the frontend.
