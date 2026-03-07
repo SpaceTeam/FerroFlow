@@ -2,6 +2,8 @@
 
 use anyhow::Result;
 
+use crate::nodes::NodeManager;
+
 mod can;
 mod config;
 mod db;
@@ -12,12 +14,18 @@ mod socket;
 fn main() -> Result<()> {
     let config = config::load_config()?;
 
+    let mut node_manager = NodeManager::new();
+
     // Start the CAN threads
     let (can_receiver, can_sender, can_thread_handles) = can::spawn_can_threads("can0")?;
 
     // Start the database logging worker
     let (db_sender, db_thread_handle) =
         db::spawn_logging_worker("DATABASE_URL=postgres://postgres:@localhost/ferroflow".into())?;
+
+    while let Ok(frame) = can_receiver.recv() {
+        node_manager.handle_can_message_from_node(frame);
+    }
 
     Ok(())
 }
