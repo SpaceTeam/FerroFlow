@@ -1,7 +1,6 @@
 //! Contains code for managing the CAN nodes that are connected to FerroFlow, their fields and data types.
 
 mod can_node;
-mod node_manager;
 
 use std::collections::HashMap;
 
@@ -74,7 +73,10 @@ impl NodeManager {
                     ),
                 }
             }
-            _ => bail!("received non-FD CAN frame, which is not supported: {:?}", frame),
+            _ => bail!(
+                "received non-FD CAN frame, which is not supported: {:?}",
+                frame
+            ),
         }
     }
 
