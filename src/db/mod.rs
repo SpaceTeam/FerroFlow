@@ -8,22 +8,22 @@ use std::{
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
-use models::SensorLog;
+use models::TelemetryLog;
 
-use crate::db::schema::sensor_logs;
+use crate::db::schema::telemetry_logs;
 
 mod models;
 mod schema;
 
 pub fn spawn_logging_worker(
     database_url: String,
-) -> Result<(mpsc::Sender<SensorLog>, thread::JoinHandle<()>)> {
-    let (tx, rx) = mpsc::channel::<SensorLog>();
+) -> Result<(mpsc::Sender<TelemetryLog>, thread::JoinHandle<()>)> {
+    let (tx, rx) = mpsc::channel::<TelemetryLog>();
     let mut conn =
         PgConnection::establish(&database_url).context("failed to connect to database")?;
     let handle = thread::spawn(move || {
         // Write to the db in batches for better performance
-        let mut batch: Vec<SensorLog> = Vec::new();
+        let mut batch: Vec<TelemetryLog> = Vec::new();
         let batch_size_limit = 100;
         let flush_timeout = Duration::from_millis(100);
 
@@ -60,8 +60,8 @@ pub fn spawn_logging_worker(
     Ok((tx, handle))
 }
 
-fn flush_batch(conn: &mut PgConnection, batch: &mut Vec<SensorLog>) -> Result<()> {
-    diesel::insert_into(sensor_logs::table)
+fn flush_batch(conn: &mut PgConnection, batch: &mut Vec<TelemetryLog>) -> Result<()> {
+    diesel::insert_into(telemetry_logs::table)
         .values(&*batch)
         .execute(conn)
         .with_context(|| format!("failed to flush {} logs to the database", batch.len()))?;

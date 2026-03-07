@@ -1,2 +1,2 @@
 -- This file should undo anything in `up.sql`
-DROP TABLE sensor_logs;
+DROP TABLE telemetry_logs;
