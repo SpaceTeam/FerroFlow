@@ -5,6 +5,7 @@ mod node_manager;
 
 use std::collections::HashMap;
 
+use anyhow::{Context, Result, bail};
 use liquidcan::{
     CanMessage, CanMessageId,
     payloads::{
@@ -31,53 +32,49 @@ impl NodeManager {
         }
     }
 
-    pub fn handle_can_message_from_node(&mut self, frame: CanAnyFrame) {
+    pub fn handle_can_message_from_node(&mut self, frame: CanAnyFrame) -> Result<()> {
         match frame {
             CanAnyFrame::Fd(frame) => {
                 let raw_id = match frame.id() {
                     Id::Standard(id) => id.as_raw(),
                     Id::Extended(id) => id.standard_id().as_raw(),
                 };
-                let message_id = raw_id.into();
-                let Ok(message) = CanMessage::try_from(frame) else {
-                    eprintln!("Failed to parse CAN frame into CanMessage: {:?}", frame);
-                    return;
-                };
+                let message_id: CanMessageId = raw_id.into();
+                let message = CanMessage::try_from(frame).with_context(|| {
+                    format!(
+                        "failed to parse CAN frame into CanMessage for node {}",
+                        message_id.sender_id()
+                    )
+                })?;
 
                 match message {
                     CanMessage::NodeInfoAnnouncement { payload } => {
                         self.handle_node_info_announcement(message_id, payload);
+                        Ok(())
                     }
                     CanMessage::TelemetryValueRegistration { payload } => {
-                        self.handle_field_registration(message_id, payload, true);
+                        self.handle_field_registration(message_id, payload, true)
                     }
                     CanMessage::ParameterRegistration { payload } => {
-                        self.handle_field_registration(message_id, payload, false);
+                        self.handle_field_registration(message_id, payload, false)
                     }
                     CanMessage::TelemetryGroupDefinition { payload } => {
-                        self.handle_telemetry_group_definition(message_id, payload);
+                        self.handle_telemetry_group_definition(message_id, payload)
                     }
                     CanMessage::TelemetryGroupUpdate { payload } => {
-                        self.handle_telemetry_group_update(message_id, payload);
+                        self.handle_telemetry_group_update(message_id, payload)
                     }
                     CanMessage::FieldGetRes { payload } => {
-                        self.handle_field_get_res(message_id, payload);
+                        self.handle_field_get_res(message_id, payload)
                     }
-                    _ => {
-                        eprintln!(
-                            "Received unsupported CAN message from node {}: {:?}",
-                            message_id.sender_id(),
-                            message
-                        );
-                    }
+                    _ => bail!(
+                        "received unsupported CAN message from node {}: {:?}",
+                        message_id.sender_id(),
+                        message
+                    ),
                 }
             }
-            _ => {
-                eprintln!(
-                    "Received non-FD CAN frame, which is not supported: {:?}",
-                    frame
-                );
-            }
+            _ => bail!("received non-FD CAN frame, which is not supported: {:?}", frame),
         }
     }
 
@@ -103,7 +100,7 @@ impl NodeManager {
         can_msg_id: CanMessageId,
         field_registration: FieldRegistrationPayload,
         is_telemetry: bool,
-    ) {
+    ) -> Result<()> {
         let node_id = can_msg_id.sender_id();
         let field_info = FieldInfo {
             name: field_registration.field_name.into(),
@@ -120,11 +117,17 @@ impl NodeManager {
             }
 
             if node.field_registration_complete() {
-                let completed_node = self.registering_nodes.remove(&node_id).unwrap();
+                let completed_node = self.registering_nodes.remove(&node_id).with_context(|| {
+                    format!(
+                        "node {} completed registration but was missing from the registering set",
+                        node_id
+                    )
+                })?;
                 self.can_nodes.insert(node_id, completed_node);
             }
+            Ok(())
         } else {
-            eprintln!(
+            bail!(
                 "Received field registration for node {} but it is not currently registering",
                 node_id
             );
@@ -135,7 +138,7 @@ impl NodeManager {
         &mut self,
         can_msg_id: CanMessageId,
         group_definition: TelemetryGroupDefinitionPayload,
-    ) {
+    ) -> Result<()> {
         let node_id = can_msg_id.sender_id();
 
         if let Some(node) = self.can_nodes.get_mut(&node_id) {
@@ -145,8 +148,9 @@ impl NodeManager {
             };
             node.telemetry_groups
                 .insert(group_definition.group_id, group);
+            Ok(())
         } else {
-            eprintln!(
+            bail!(
                 "Received telemetry group definition for node {} but it is not registered",
                 node_id
             );
@@ -157,100 +161,98 @@ impl NodeManager {
         &mut self,
         can_msg_id: CanMessageId,
         group_update: TelemetryGroupUpdatePayload,
-    ) {
+    ) -> Result<()> {
         let node_id = can_msg_id.sender_id();
 
-        let Some(node) = self.can_nodes.get_mut(&node_id) else {
-            eprintln!(
-                "Received telemetry group update for node {} but it is not registered",
+        let node = self.can_nodes.get_mut(&node_id).with_context(|| {
+            format!(
+                "received telemetry group update for node {} but it is not registered",
                 node_id
-            );
-            return;
-        };
+            )
+        })?;
 
         let group_id = group_update.group_id;
 
-        let Some(group_definition) = node.telemetry_groups.get(&group_id) else {
-            eprintln!(
-                "Received telemetry group update for node {} and group {} but the group is not defined",
-                node_id, group_id
-            );
-            return;
-        };
+        let field_ids = node
+            .telemetry_groups
+            .get(&group_id)
+            .map(|group| group.fields.clone())
+            .with_context(|| {
+                format!(
+                    "received telemetry group update for node {} and group {} but the group is not defined",
+                    node_id, group_id
+                )
+            })?;
 
-        // Check if we have all the definitions for the fields in this group, and if so unpack the data.
-        if !group_definition
-            .fields
+        let field_types = field_ids
             .iter()
-            .all(|id| node.telemetry_fields.contains_key(id))
+            .map(|id| {
+                node.telemetry_fields
+                    .get(id)
+                    .map(|field| field.data_type)
+                    .with_context(|| {
+                        format!(
+                            "received telemetry group update for node {} and group {} but field {} is not defined",
+                            node_id, group_id, id
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        for (id, value) in field_ids
+            .into_iter()
+            .zip(group_update.values.unpack(field_types.into_iter()))
         {
-            eprintln!(
-                "Received telemetry group update for node {} and group {} but we don't have definitions for all the fields",
-                node_id, group_id
-            );
-            return;
+            let value = value.with_context(|| {
+                format!(
+                    "failed to unpack value for node {} group {} field {}",
+                    node_id, group_id, id
+                )
+            })?;
+            node.values.insert(id, value);
         }
 
-        let field_types = group_definition
-            .fields
-            .iter()
-            .map(|id| node.telemetry_fields.get(id).unwrap().data_type);
-
-        for (id, value) in group_definition
-            .fields
-            .iter()
-            .zip(group_update.values.unpack(field_types))
-        {
-            match value {
-                Ok(value) => {
-                    node.values.insert(*id, value);
-                }
-                Err(e) => {
-                    eprintln!(
-                        "Failed to unpack value for node {} group {} field {}: {:?}",
-                        node_id, group_id, id, e
-                    );
-                }
-            }
-        }
+        Ok(())
     }
 
-    pub fn handle_field_get_res(&mut self, can_msg_id: CanMessageId, res: FieldGetResPayload) {
+    pub fn handle_field_get_res(
+        &mut self,
+        can_msg_id: CanMessageId,
+        res: FieldGetResPayload,
+    ) -> Result<()> {
         let node_id = can_msg_id.sender_id();
 
-        let Some(node) = self.can_nodes.get_mut(&node_id) else {
-            eprintln!(
-                "Received field get response for node {} but it is not registered",
+        let node = self.can_nodes.get_mut(&node_id).with_context(|| {
+            format!(
+                "received field get response for node {} but it is not registered",
                 node_id
-            );
-            return;
-        };
+            )
+        })?;
 
         let field_id = res.field_id;
         let field_info = node
             .telemetry_fields
-            .get_mut(&field_id)
-            .or_else(|| node.parameter_fields.get_mut(&field_id));
-
-        let Some(field_info) = field_info else {
-            eprintln!(
-                "Received field get response for node {} field {} but we don't have a definition for this field",
-                node_id, field_id
-            );
-            return;
-        };
+            .get(&field_id)
+            .or_else(|| node.parameter_fields.get(&field_id))
+            .with_context(|| {
+                format!(
+                    "received field get response for node {} field {} but no field definition exists",
+                    node_id, field_id
+                )
+            })?;
 
         let field_type = field_info.data_type;
 
-        let Ok(value) = res.value.convert_from_raw(field_type) else {
-            eprintln!(
-                "Failed to convert field get response value for node {} field {}: {:?}",
+        let value = res.value.convert_from_raw(field_type).with_context(|| {
+            format!(
+                "failed to convert field get response value for node {} field {} from {:?}",
                 node_id, field_id, res.value
-            );
-            return;
-        };
+            )
+        })?;
 
         node.values.insert(field_id, value);
+
+        Ok(())
     }
 
     fn register_node(&mut self, node_id: u8, registration_info: RegistrationInfo) {

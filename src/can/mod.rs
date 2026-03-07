@@ -34,21 +34,36 @@ pub fn spawn_can_threads(
 
 fn can_recv_thread(socket: Arc<CanFdSocket>, sender: mpsc::Sender<CanAnyFrame>) {
     loop {
-        match socket.read_frame() {
-            Ok(frame) => {
-                if let Err(e) = sender.send(frame) {
-                    eprintln!("Failed to send received CAN frame to channel: {}", e);
-                }
-            }
-            Err(e) => eprintln!("Failed to read CAN frame: {}", e),
+        if let Err(error) = receive_frame(&socket, &sender) {
+            eprintln!("CAN receive thread error: {error:#}");
         }
     }
 }
 
 fn can_send_thread(socket: Arc<CanFdSocket>, receiver: mpsc::Receiver<CanAnyFrame>) {
-    while let Ok(frame) = receiver.recv() {
-        if let Err(e) = socket.write_frame(&frame) {
-            eprintln!("Failed to send CAN frame: {}", e);
+    loop {
+        let frame = match receiver.recv() {
+            Ok(frame) => frame,
+            Err(_) => break,
+        };
+
+        if let Err(error) = send_frame(&socket, &frame) {
+            eprintln!("CAN send thread error: {error:#}");
         }
     }
+}
+
+fn receive_frame(socket: &CanFdSocket, sender: &mpsc::Sender<CanAnyFrame>) -> Result<()> {
+    let frame = socket.read_frame().context("failed to read CAN frame")?;
+    sender
+        .send(frame)
+        .context("failed to forward received CAN frame to channel")?;
+    Ok(())
+}
+
+fn send_frame(socket: &CanFdSocket, frame: &CanAnyFrame) -> Result<()> {
+    socket
+        .write_frame(frame)
+        .context("failed to send CAN frame")?;
+    Ok(())
 }

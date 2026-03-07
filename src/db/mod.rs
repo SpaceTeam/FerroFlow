@@ -32,17 +32,23 @@ pub fn spawn_logging_worker(
                 Ok(log) => {
                     batch.push(log);
                     if batch.len() >= batch_size_limit {
-                        flush_batch(&mut conn, &mut batch);
+                        if let Err(error) = flush_batch(&mut conn, &mut batch) {
+                            eprintln!("Database logging worker error: {error:#}");
+                        }
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     if !batch.is_empty() {
-                        flush_batch(&mut conn, &mut batch);
+                        if let Err(error) = flush_batch(&mut conn, &mut batch) {
+                            eprintln!("Database logging worker error: {error:#}");
+                        }
                     }
                 }
                 Err(RecvTimeoutError::Disconnected) => {
                     if !batch.is_empty() {
-                        flush_batch(&mut conn, &mut batch);
+                        if let Err(error) = flush_batch(&mut conn, &mut batch) {
+                            eprintln!("Database logging worker error: {error:#}");
+                        }
                     }
                     println!("Worker shutting down gracefully.");
                     break;
@@ -54,21 +60,12 @@ pub fn spawn_logging_worker(
     Ok((tx, handle))
 }
 
-fn flush_batch(conn: &mut PgConnection, batch: &mut Vec<SensorLog>) {
-    let result = diesel::insert_into(sensor_logs::table)
+fn flush_batch(conn: &mut PgConnection, batch: &mut Vec<SensorLog>) -> Result<()> {
+    diesel::insert_into(sensor_logs::table)
         .values(&*batch)
-        .execute(conn);
+        .execute(conn)
+        .with_context(|| format!("failed to flush {} logs to the database", batch.len()))?;
 
-    match result {
-        Ok(count) => {
-            batch.clear();
-        }
-        Err(e) => {
-            eprintln!(
-                "Failed to flush logs to the database: {:?}. Keeping batch. Current batch size: {}",
-                e,
-                batch.len()
-            );
-        }
-    }
+    batch.clear();
+    Ok(())
 }
