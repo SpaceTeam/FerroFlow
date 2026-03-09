@@ -109,7 +109,6 @@ impl NodeManager {
             data_type: field_registration.field_type,
         };
 
-        let node_id = node_id;
         if let Some(node) = self.registering_nodes.get_mut(&node_id) {
             let id = field_registration.field_id;
             if is_telemetry {
