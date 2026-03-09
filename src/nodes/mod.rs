@@ -185,24 +185,28 @@ impl NodeManager {
                 )
             })?;
 
-        let field_types = field_ids
-            .iter()
-            .map(|id| {
-                node.telemetry_fields
-                    .get(id)
-                    .map(|field| field.data_type)
-                    .with_context(|| {
-                        format!(
-                            "received telemetry group update for node {} and group {} but field {} is not defined",
-                            node_id, group_id, id
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let (telemetry_fields, values) = (&node.telemetry_fields, &mut node.values);
 
-        for (id, value) in field_ids
-            .into_iter()
-            .zip(group_update.values.unpack(field_types.into_iter()))
+        for id in &field_ids {
+            // check if we can find the field definition for all fields in the group before trying to unpack any values.
+            telemetry_fields.get(id).with_context(|| {
+                format!(
+                    "received telemetry group update for node {} and group {} but field {} is not defined",
+                    node_id, group_id, id
+                )
+            })?;
+        }
+
+        let field_types = field_ids.iter().map(|id| {
+            telemetry_fields
+                .get(id)
+                .map(|field| field.data_type)
+                .expect("telemetry field existence validated above")
+        });
+
+        for (&id, value) in field_ids
+            .iter()
+            .zip(group_update.values.unpack(field_types))
         {
             let value = value.with_context(|| {
                 format!(
@@ -210,7 +214,7 @@ impl NodeManager {
                     node_id, group_id, id
                 )
             })?;
-            node.values.insert(id, value);
+            values.insert(id, value);
         }
 
         Ok(())
