@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use liquidcan::payloads::{CanDataType, CanDataValue};
 
 pub struct CanNode {
@@ -7,7 +9,7 @@ pub struct CanNode {
     pub telemetry_fields: HashMap<u8, FieldInfo>,
     pub parameter_fields: HashMap<u8, FieldInfo>,
     pub telemetry_groups: HashMap<u8, TelemetryGroupDefinition>,
-    pub values: HashMap<u8, CanDataValue>,
+    pub values: DashMap<u8, (DateTime<Utc>, CanDataValue)>,
 }
 
 impl CanNode {
@@ -17,7 +19,7 @@ impl CanNode {
             telemetry_fields: HashMap::new(),
             parameter_fields: HashMap::new(),
             telemetry_groups: HashMap::new(),
-            values: HashMap::new(),
+            values: DashMap::new(),
         }
     }
 

@@ -1,33 +1,35 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Mutex};
 
 use anyhow::{Context, Result, bail};
+use chrono::Utc;
+use dashmap::DashMap;
 use liquidcan::{
     CanMessage, CanMessageId,
     payloads::{
-        CanDataType, FieldGetResPayload, FieldRegistrationPayload, NodeInfoResPayload,
-        TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
+        CanDataType, CanDataValue, FieldGetResPayload, FieldRegistrationPayload, NodeInfoResPayload, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload
     },
 };
 use socketcan::{CanAnyFrame, EmbeddedFrame, Frame, Id};
+use anyhow::anyhow;
 
 use super::can_node::{CanNode, FieldInfo, RegistrationInfo, TelemetryGroupDefinition};
 
 pub struct NodeManager {
-    can_nodes: HashMap<u8, CanNode>,
+    can_nodes: DashMap<u8, CanNode>,
 
     // Nodes that did not yet receive all their field registrations.
-    registering_nodes: HashMap<u8, CanNode>,
+    registering_nodes: Mutex<HashMap<u8, CanNode>>,
 }
 
 impl NodeManager {
     pub fn new() -> Self {
         Self {
-            can_nodes: HashMap::new(),
-            registering_nodes: HashMap::new(),
+            can_nodes: DashMap::new(),
+            registering_nodes: Mutex::new(HashMap::new()),
         }
     }
 
-    pub fn handle_can_message_from_node(&mut self, frame: CanAnyFrame) -> Result<()> {
+    pub fn handle_can_message_from_node(&self, frame: CanAnyFrame) -> Result<()> {
         match frame {
             CanAnyFrame::Fd(frame) => {
                 let raw_id = match frame.id() {
@@ -44,8 +46,7 @@ impl NodeManager {
 
                 match message {
                     CanMessage::NodeInfoAnnouncement { payload } => {
-                        self.handle_node_info_announcement(message_id, payload);
-                        Ok(())
+                        self.handle_node_info_announcement(message_id, payload)
                     }
                     CanMessage::TelemetryValueRegistration { payload } => {
                         self.handle_field_registration(message_id, payload, true)
@@ -77,10 +78,10 @@ impl NodeManager {
     }
 
     pub fn handle_node_info_announcement(
-        &mut self,
+        &self,
         can_msg_id: CanMessageId,
         node_info_res: NodeInfoResPayload,
-    ) {
+    ) -> Result<()> {
         let node_id = can_msg_id.sender_id();
         let registration_info = RegistrationInfo {
             telemetry_count: node_info_res.tel_count,
@@ -90,11 +91,11 @@ impl NodeManager {
             device_name: node_info_res.device_name.into(),
         };
 
-        self.register_node(node_id, registration_info);
+        self.register_node(node_id, registration_info)
     }
 
     pub fn handle_field_registration(
-        &mut self,
+        &self,
         can_msg_id: CanMessageId,
         field_registration: FieldRegistrationPayload,
         is_telemetry: bool,
@@ -105,7 +106,9 @@ impl NodeManager {
             data_type: field_registration.field_type,
         };
 
-        if let Some(node) = self.registering_nodes.get_mut(&node_id) {
+        let mut registering_nodes = self.registering_nodes.lock().map_err(|e| anyhow!("Mutex was poisoned: {}", e))?;
+
+        if let Some(node) = registering_nodes.get_mut(&node_id) {
             let id = field_registration.field_id;
             if is_telemetry {
                 node.telemetry_fields.insert(id, field_info);
@@ -114,7 +117,7 @@ impl NodeManager {
             }
 
             if node.field_registration_complete() {
-                let completed_node = self.registering_nodes.remove(&node_id).with_context(|| {
+                let completed_node = registering_nodes.remove(&node_id).with_context(|| {
                     format!(
                         "node {} completed registration but was missing from the registering set",
                         node_id
@@ -132,13 +135,15 @@ impl NodeManager {
     }
 
     pub fn handle_telemetry_group_definition(
-        &mut self,
+        &self,
         can_msg_id: CanMessageId,
         group_definition: TelemetryGroupDefinitionPayload,
     ) -> Result<()> {
         let node_id = can_msg_id.sender_id();
 
-        if let Some(node) = self.can_nodes.get_mut(&node_id) {
+        let mut registering_nodes = self.registering_nodes.lock().map_err(|e| anyhow!("Mutex was poisoned: {}", e))?;
+
+        if let Some(node) = registering_nodes.get_mut(&node_id) {
             let fields: &[u8] = (&group_definition.field_ids).into();
             let group = TelemetryGroupDefinition {
                 fields: fields.into(),
@@ -155,13 +160,15 @@ impl NodeManager {
     }
 
     pub fn handle_telemetry_group_update(
-        &mut self,
+        &self,
         can_msg_id: CanMessageId,
         group_update: TelemetryGroupUpdatePayload,
     ) -> Result<()> {
+        let timestamp = Utc::now();
+
         let node_id = can_msg_id.sender_id();
 
-        let node = self.can_nodes.get_mut(&node_id).with_context(|| {
+        let mut node = self.can_nodes.get(&node_id).with_context(|| {
             format!(
                 "received telemetry group update for node {} but it is not registered",
                 node_id
@@ -181,28 +188,20 @@ impl NodeManager {
                 )
             })?;
 
-        let (telemetry_fields, values) = (&node.telemetry_fields, &mut node.values);
-
-        for id in &field_ids {
-            // check if we can find the field definition for all fields in the group before trying to unpack any values.
-            telemetry_fields.get(id).with_context(|| {
+        let field_types = field_ids.iter().map(|id| {
+            node.telemetry_fields
+                .get(id)
+                .map(|field| field.data_type).with_context(|| {
                 format!(
                     "received telemetry group update for node {} and group {} but field {} is not defined",
                     node_id, group_id, id
                 )
-            })?;
-        }
+            })
+        }).collect::<Result<Vec<CanDataType>>>()?;
 
-        let field_types = field_ids.iter().map(|id| {
-            telemetry_fields
-                .get(id)
-                .map(|field| field.data_type)
-                .expect("telemetry field existence validated above")
-        });
-
-        for (&id, value) in field_ids
+        for (&id, value)  in field_ids
             .iter()
-            .zip(group_update.values.unpack(field_types))
+            .zip(group_update.values.unpack(field_types.into_iter()))
         {
             let value = value.with_context(|| {
                 format!(
@@ -210,20 +209,22 @@ impl NodeManager {
                     node_id, group_id, id
                 )
             })?;
-            values.insert(id, value);
+            node.values.insert(id, (timestamp, value));
         }
 
         Ok(())
     }
 
     pub fn handle_field_get_res(
-        &mut self,
+        &self,
         can_msg_id: CanMessageId,
         res: FieldGetResPayload,
     ) -> Result<()> {
+        let timestamp = Utc::now();
+
         let node_id = can_msg_id.sender_id();
 
-        let node = self.can_nodes.get_mut(&node_id).with_context(|| {
+        let node = self.can_nodes.get(&node_id).with_context(|| {
             format!(
                 "received field get response for node {} but it is not registered",
                 node_id
@@ -251,13 +252,15 @@ impl NodeManager {
             )
         })?;
 
-        node.values.insert(field_id, value);
+        node.values.insert(field_id, (timestamp, value));
 
         Ok(())
     }
 
-    fn register_node(&mut self, node_id: u8, registration_info: RegistrationInfo) {
+    fn register_node(&self, node_id: u8, registration_info: RegistrationInfo) -> Result<()> {
         let node = CanNode::new(registration_info);
-        self.registering_nodes.insert(node_id, node);
+        self.registering_nodes.lock().map_err(|e| anyhow!("Mutex was poisoned: {}", e))?.insert(node_id, node);
+        Ok(())
+
     }
 }
