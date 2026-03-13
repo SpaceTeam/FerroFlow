@@ -41,12 +41,7 @@ fn can_recv_thread(socket: Arc<CanFdSocket>, sender: mpsc::Sender<CanAnyFrame>) 
 }
 
 fn can_send_thread(socket: Arc<CanFdSocket>, receiver: mpsc::Receiver<CanAnyFrame>) {
-    loop {
-        let frame = match receiver.recv() {
-            Ok(frame) => frame,
-            Err(_) => break,
-        };
-
+    while let Ok(frame) = receiver.recv() {
         if let Err(error) = send_frame(&socket, &frame) {
             eprintln!("CAN send thread error: {error:#}");
         }

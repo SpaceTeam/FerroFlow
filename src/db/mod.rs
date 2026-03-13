@@ -33,24 +33,27 @@ pub fn spawn_logging_worker(
             match rx.recv_timeout(flush_timeout) {
                 Ok(log) => {
                     batch.push(log);
-                    if batch.len() >= batch_size_limit {
-                        if let Err(error) = flush_batch(&mut conn, &mut batch) {
-                            eprintln!("Database logging worker error: {error:#}");
-                        }
+                    if batch.len() < batch_size_limit {
+                        continue;
+                    }
+                    if let Err(error) = flush_batch(&mut conn, &mut batch) {
+                        eprintln!("Database logging worker error: {error:#}");
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    if !batch.is_empty() {
-                        if let Err(error) = flush_batch(&mut conn, &mut batch) {
-                            eprintln!("Database logging worker error: {error:#}");
-                        }
+                    if batch.is_empty() {
+                        continue;
+                    }
+                    if let Err(error) = flush_batch(&mut conn, &mut batch) {
+                        eprintln!("Database logging worker error: {error:#}");
                     }
                 }
                 Err(RecvTimeoutError::Disconnected) => {
-                    if !batch.is_empty() {
-                        if let Err(error) = flush_batch(&mut conn, &mut batch) {
-                            eprintln!("Database logging worker error: {error:#}");
-                        }
+                    if batch.is_empty() {
+                        continue;
+                    }
+                    if let Err(error) = flush_batch(&mut conn, &mut batch) {
+                        eprintln!("Database logging worker error: {error:#}");
                     }
                     println!("Worker shutting down gracefully.");
                     break;

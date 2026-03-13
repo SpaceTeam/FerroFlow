@@ -23,12 +23,7 @@ fn main() -> Result<()> {
     let (db_sender, db_thread_handle) =
         db::spawn_logging_worker("DATABASE_URL=postgres://postgres:@localhost/ferroflow".into())?;
 
-    loop {
-        let frame = match can_receiver.recv() {
-            Ok(frame) => frame,
-            Err(_) => break,
-        };
-
+    while let Ok(frame) = can_receiver.recv() {
         if let Err(error) = node_manager.handle_can_message_from_node(frame, &db_sender) {
             eprintln!("Failed to process CAN frame: {error:#}");
         }
