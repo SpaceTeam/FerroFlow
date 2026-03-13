@@ -29,7 +29,7 @@ fn main() -> Result<()> {
             Err(_) => break,
         };
 
-        if let Err(error) = node_manager.handle_can_message_from_node(frame) {
+        if let Err(error) = node_manager.handle_can_message_from_node(frame, &db_sender) {
             eprintln!("Failed to process CAN frame: {error:#}");
         }
     }

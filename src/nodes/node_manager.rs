@@ -1,16 +1,22 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, mpsc::Sender},
+};
 
+use anyhow::anyhow;
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use dashmap::DashMap;
 use liquidcan::{
     CanMessage, CanMessageId,
     payloads::{
-        CanDataType, CanDataValue, FieldGetResPayload, FieldRegistrationPayload, NodeInfoResPayload, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload
+        CanDataType, CanDataValue, FieldGetResPayload, FieldRegistrationPayload,
+        NodeInfoResPayload, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
     },
 };
 use socketcan::{CanAnyFrame, EmbeddedFrame, Frame, Id};
-use anyhow::anyhow;
+
+use crate::db::FieldLog;
 
 use super::can_node::{CanNode, FieldInfo, RegistrationInfo, TelemetryGroupDefinition};
 
@@ -29,7 +35,11 @@ impl NodeManager {
         }
     }
 
-    pub fn handle_can_message_from_node(&self, frame: CanAnyFrame) -> Result<()> {
+    pub fn handle_can_message_from_node(
+        &self,
+        frame: CanAnyFrame,
+        db_sender: &Sender<FieldLog>,
+    ) -> Result<()> {
         match frame {
             CanAnyFrame::Fd(frame) => {
                 let raw_id = match frame.id() {
@@ -58,10 +68,10 @@ impl NodeManager {
                         self.handle_telemetry_group_definition(message_id, payload)
                     }
                     CanMessage::TelemetryGroupUpdate { payload } => {
-                        self.handle_telemetry_group_update(message_id, payload)
+                        self.handle_telemetry_group_update(message_id, payload, db_sender)
                     }
                     CanMessage::FieldGetRes { payload } => {
-                        self.handle_field_get_res(message_id, payload)
+                        self.handle_field_get_res(message_id, payload, db_sender)
                     }
                     _ => bail!(
                         "received unsupported CAN message from node {}: {:?}",
@@ -106,7 +116,10 @@ impl NodeManager {
             data_type: field_registration.field_type,
         };
 
-        let mut registering_nodes = self.registering_nodes.lock().map_err(|e| anyhow!("Mutex was poisoned: {}", e))?;
+        let mut registering_nodes = self
+            .registering_nodes
+            .lock()
+            .map_err(|e| anyhow!("Mutex was poisoned: {}", e))?;
 
         if let Some(node) = registering_nodes.get_mut(&node_id) {
             let id = field_registration.field_id;
@@ -141,7 +154,10 @@ impl NodeManager {
     ) -> Result<()> {
         let node_id = can_msg_id.sender_id();
 
-        let mut registering_nodes = self.registering_nodes.lock().map_err(|e| anyhow!("Mutex was poisoned: {}", e))?;
+        let mut registering_nodes = self
+            .registering_nodes
+            .lock()
+            .map_err(|e| anyhow!("Mutex was poisoned: {}", e))?;
 
         if let Some(node) = registering_nodes.get_mut(&node_id) {
             let fields: &[u8] = (&group_definition.field_ids).into();
@@ -163,6 +179,7 @@ impl NodeManager {
         &self,
         can_msg_id: CanMessageId,
         group_update: TelemetryGroupUpdatePayload,
+        sender: &Sender<FieldLog>,
     ) -> Result<()> {
         let timestamp = Utc::now();
 
@@ -188,28 +205,44 @@ impl NodeManager {
                 )
             })?;
 
-        let field_types = field_ids.iter().map(|id| {
+        let field_infos = field_ids.iter().map(|id| {
             node.telemetry_fields
                 .get(id)
-                .map(|field| field.data_type).with_context(|| {
+                .with_context(|| {
                 format!(
                     "received telemetry group update for node {} and group {} but field {} is not defined",
                     node_id, group_id, id
                 )
             })
-        }).collect::<Result<Vec<CanDataType>>>()?;
+        }).collect::<Result<Vec<&FieldInfo>>>()?;
 
-        for (&id, value)  in field_ids
-            .iter()
-            .zip(group_update.values.unpack(field_types.into_iter()))
-        {
+        for (&id, value) in field_ids.iter().zip(
+            group_update
+                .values
+                .unpack(field_infos.iter().map(|info| info.data_type)),
+        ) {
             let value = value.with_context(|| {
                 format!(
                     "failed to unpack value for node {} group {} field {}",
                     node_id, group_id, id
                 )
             })?;
-            node.values.insert(id, (timestamp, value));
+            node.values.insert(id, (timestamp, value.clone()));
+
+            let field_info = node
+                .telemetry_fields
+                .get(&id)
+                .unwrap();
+
+            let telemetry_log = FieldLog {
+                timestamp,
+                node_id: node_id as i16,
+                field_id: id as i16,
+                field_name: field_info.name.clone(),
+                field_value: Self::can_data_value_to_json(value),
+            };
+            sender.send(telemetry_log)
+                .context("failed to send field log to database logging worker")?;
         }
 
         Ok(())
@@ -219,6 +252,7 @@ impl NodeManager {
         &self,
         can_msg_id: CanMessageId,
         res: FieldGetResPayload,
+        sender: &Sender<FieldLog>,
     ) -> Result<()> {
         let timestamp = Utc::now();
 
@@ -252,15 +286,43 @@ impl NodeManager {
             )
         })?;
 
-        node.values.insert(field_id, (timestamp, value));
+        node.values.insert(field_id, (timestamp, value.clone()));
+
+        let telemetry_log = FieldLog {
+            timestamp,
+            node_id: node_id as i16,
+            field_id: field_id as i16,
+            field_name: field_info.name.clone(),
+            field_value: Self::can_data_value_to_json(value),
+        };
+
+        sender
+            .send(telemetry_log)
+            .context("failed to send field log to database logging worker")?;
 
         Ok(())
     }
 
     fn register_node(&self, node_id: u8, registration_info: RegistrationInfo) -> Result<()> {
         let node = CanNode::new(registration_info);
-        self.registering_nodes.lock().map_err(|e| anyhow!("Mutex was poisoned: {}", e))?.insert(node_id, node);
+        self.registering_nodes
+            .lock()
+            .map_err(|e| anyhow!("Mutex was poisoned: {}", e))?
+            .insert(node_id, node);
         Ok(())
+    }
 
+    fn can_data_value_to_json(value: CanDataValue) -> serde_json::Value {
+        match value {
+            CanDataValue::Float32(v) => serde_json::json!(v),
+            CanDataValue::Int32(v) => serde_json::json!(v),
+            CanDataValue::Int16(v) => serde_json::json!(v),
+            CanDataValue::Int8(v) => serde_json::json!(v),
+            CanDataValue::UInt32(v) => serde_json::json!(v),
+            CanDataValue::UInt16(v) => serde_json::json!(v),
+            CanDataValue::UInt8(v) => serde_json::json!(v),
+            CanDataValue::Boolean(v) => serde_json::json!(v),
+            CanDataValue::Raw(items) => serde_json::json!(items),
+        }
     }
 }
