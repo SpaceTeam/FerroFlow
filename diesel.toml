@@ -4,6 +4,7 @@
 [print_schema]
 file = "src/db/schema.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
+filter = { except_tables = ["field_logs"] } # Don't create a schema for the field_logs table, since it does not include a primary key.
 
 [migrations_directory]
 dir = "migrations"

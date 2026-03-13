@@ -2,12 +2,14 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde_json::Value;
 
-use super::schema::telemetry_logs;
+use super::timescale_schema::field_logs;
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = telemetry_logs)]
-pub struct TelemetryLog {
+#[diesel(table_name = field_logs)]
+pub struct FieldLog {
     pub timestamp: DateTime<Utc>,
-    pub event_type: String,
-    pub payload: Value,
+    pub node_id: i16,
+    pub field_id: i16,
+    pub field_name: String,
+    pub field_value: Value,
 }
