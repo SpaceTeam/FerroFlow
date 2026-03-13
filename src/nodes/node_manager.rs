@@ -229,10 +229,7 @@ impl NodeManager {
             })?;
             node.values.insert(id, (timestamp, value.clone()));
 
-            let field_info = node
-                .telemetry_fields
-                .get(&id)
-                .unwrap();
+            let field_info = node.telemetry_fields.get(&id).unwrap();
 
             let telemetry_log = FieldLog {
                 timestamp,
@@ -241,7 +238,8 @@ impl NodeManager {
                 field_name: field_info.name.clone(),
                 field_value: Self::can_data_value_to_json(value),
             };
-            sender.send(telemetry_log)
+            sender
+                .send(telemetry_log)
                 .context("failed to send field log to database logging worker")?;
         }
 
