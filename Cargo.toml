@@ -5,3 +5,9 @@ edition = "2024"
 
 [dependencies]
 liquidcan = { path = "LiquidCAN/liquidcan_rust", package = "liquidcan_rust" }
+socketcan = "3.5.0"
+diesel = { version = "2.3", features = ["postgres", "chrono", "serde_json"] }
+chrono = "0.4"
+serde_json = "1.0"
+anyhow = "1.0.102"
+dashmap = "6.1.0"
