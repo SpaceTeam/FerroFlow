@@ -2,57 +2,57 @@
 
 use std::{
     sync::{Arc, mpsc},
-    thread,
+    thread::{self, Scope},
 };
 
 use anyhow::{Context, Result};
 use socketcan::{CanAnyFrame, CanFdSocket, Socket};
 
+use crate::events::{self, Event, EventDispatcher};
+
 type CanThreadHandles = [thread::JoinHandle<()>; 2];
 
-pub fn spawn_can_threads(
-    interface: &str,
-) -> Result<(
-    mpsc::Receiver<CanAnyFrame>,
-    mpsc::Sender<CanAnyFrame>,
-    CanThreadHandles,
-)> {
+pub fn spawn_can_threads<'a>(
+    interface: &'a str,
+    event_dispatcher: &'a EventDispatcher,
+    scope: &'a Scope<'a, '_>,
+) -> Result<()> {
     let socket =
         Arc::new(CanFdSocket::open(interface).with_context(|| {
             format!("failed to open can fd socket for interface {}", interface)
         })?);
 
-    let (recv_sender, recv_receiver) = mpsc::channel();
-    let (send_sender, send_receiver) = mpsc::channel();
-
     let socket_clone = Arc::clone(&socket);
-    let handle1 = std::thread::spawn(move || can_recv_thread(socket_clone, recv_sender));
-    let handle2 = std::thread::spawn(move || can_send_thread(socket, send_receiver));
+    scope.spawn(move || can_recv_thread(socket_clone, event_dispatcher));
+    scope.spawn(move || can_send_thread(socket, event_dispatcher));
 
-    Ok((recv_receiver, send_sender, [handle1, handle2]))
+    Ok(())
 }
 
-fn can_recv_thread(socket: Arc<CanFdSocket>, sender: mpsc::Sender<CanAnyFrame>) {
+fn can_recv_thread(socket: Arc<CanFdSocket>, event_dispatcher: &EventDispatcher) {
     loop {
-        if let Err(error) = receive_frame(&socket, &sender) {
+        if let Err(error) = receive_frame(&socket, event_dispatcher) {
             eprintln!("CAN receive thread error: {error:#}");
         }
     }
 }
 
-fn can_send_thread(socket: Arc<CanFdSocket>, receiver: mpsc::Receiver<CanAnyFrame>) {
-    while let Ok(frame) = receiver.recv() {
+fn can_send_thread(socket: Arc<CanFdSocket>, event_dispatcher: &EventDispatcher) {
+    let (sender, receiver) = mpsc::channel::<events::Event>();
+    event_dispatcher.subscribe(sender);
+    while let Ok(event) = receiver.recv() {
+        let events::Event::SendCanMessage(frame) = event else {
+            continue;
+        };
         if let Err(error) = send_frame(&socket, &frame) {
             eprintln!("CAN send thread error: {error:#}");
         }
     }
 }
 
-fn receive_frame(socket: &CanFdSocket, sender: &mpsc::Sender<CanAnyFrame>) -> Result<()> {
+fn receive_frame(socket: &CanFdSocket, event_dispatcher: &EventDispatcher) -> Result<()> {
     let frame = socket.read_frame().context("failed to read CAN frame")?;
-    sender
-        .send(frame)
-        .context("failed to forward received CAN frame to channel")?;
+    event_dispatcher.dispatch(Event::CanMessageReceived(frame));
     Ok(())
 }
 

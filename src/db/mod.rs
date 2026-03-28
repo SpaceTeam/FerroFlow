@@ -9,7 +9,10 @@ use std::{
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 
-use crate::db::timescale_schema::field_logs;
+use crate::{
+    db::timescale_schema::field_logs,
+    events::{self, Event},
+};
 
 pub use self::models::FieldLog;
 
@@ -17,13 +20,17 @@ mod models;
 mod schema;
 mod timescale_schema;
 
-pub fn spawn_logging_worker(
+pub fn spawn_logging_worker<'a>(
     database_url: String,
-) -> Result<(mpsc::Sender<FieldLog>, thread::JoinHandle<()>)> {
-    let (tx, rx) = mpsc::channel::<FieldLog>();
+    event_dispatcher: &'a events::EventDispatcher,
+    scope: &'a thread::Scope<'a, '_>,
+) -> Result<()> {
     let mut conn =
         PgConnection::establish(&database_url).context("failed to connect to database")?;
-    let handle = thread::spawn(move || {
+    scope.spawn(move || {
+        let (tx, rx) = mpsc::channel::<events::Event>();
+        event_dispatcher.subscribe(tx);
+
         // Write to the db in batches for better performance
         let mut batch: Vec<FieldLog> = Vec::new();
         let batch_size_limit = 100;
@@ -31,7 +38,7 @@ pub fn spawn_logging_worker(
 
         loop {
             match rx.recv_timeout(flush_timeout) {
-                Ok(log) => {
+                Ok(Event::NodeFieldUpdated(log)) => {
                     batch.push(log);
                     if batch.len() < batch_size_limit {
                         continue;
@@ -39,6 +46,9 @@ pub fn spawn_logging_worker(
                     if let Err(error) = flush_batch(&mut conn, &mut batch) {
                         eprintln!("Database logging worker error: {error:#}");
                     }
+                }
+                Ok(_) => {
+                    // Ignore other events
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     if batch.is_empty() {
@@ -62,7 +72,7 @@ pub fn spawn_logging_worker(
         }
     });
 
-    Ok((tx, handle))
+    Ok(())
 }
 
 fn flush_batch(conn: &mut PgConnection, batch: &mut Vec<FieldLog>) -> Result<()> {

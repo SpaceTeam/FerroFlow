@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use super::timescale_schema::field_logs;
 
-#[derive(Insertable, Debug)]
+#[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = field_logs)]
 pub struct FieldLog {
     pub timestamp: DateTime<Utc>,
