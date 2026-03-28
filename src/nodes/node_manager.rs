@@ -101,7 +101,18 @@ impl NodeManager {
             device_name: node_info_res.device_name.into(),
         };
 
-        self.register_node(node_id, registration_info)
+        let node = CanNode::new(registration_info);
+
+        if node.node_registration_complete() {
+            self.can_nodes.insert(node_id, node);
+        } else {
+            self.registering_nodes
+                .lock()
+                .map_err(|e| anyhow!("Mutex was poisoned: {}", e))?
+                .insert(node_id, node);
+        }
+
+        Ok(())
     }
 
     pub fn handle_field_registration(
@@ -129,7 +140,7 @@ impl NodeManager {
                 node.parameter_fields.insert(id, field_info);
             }
 
-            if node.field_registration_complete() {
+            if node.node_registration_complete() {
                 let completed_node = registering_nodes.remove(&node_id).with_context(|| {
                     format!(
                         "node {} completed registration but was missing from the registering set",
@@ -166,6 +177,17 @@ impl NodeManager {
             };
             node.telemetry_groups
                 .insert(group_definition.group_id, group);
+
+            if node.node_registration_complete() {
+                let completed_node = registering_nodes.remove(&node_id).with_context(|| {
+                    format!(
+                        "node {} completed registration but was missing from the registering set",
+                        node_id
+                    )
+                })?;
+                self.can_nodes.insert(node_id, completed_node);
+            }
+
             Ok(())
         } else {
             bail!(
@@ -298,15 +320,6 @@ impl NodeManager {
             .send(telemetry_log)
             .context("failed to send field log to database logging worker")?;
 
-        Ok(())
-    }
-
-    fn register_node(&self, node_id: u8, registration_info: RegistrationInfo) -> Result<()> {
-        let node = CanNode::new(registration_info);
-        self.registering_nodes
-            .lock()
-            .map_err(|e| anyhow!("Mutex was poisoned: {}", e))?
-            .insert(node_id, node);
         Ok(())
     }
 

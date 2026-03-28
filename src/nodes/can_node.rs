@@ -23,9 +23,19 @@ impl CanNode {
         }
     }
 
-    pub fn field_registration_complete(&self) -> bool {
-        self.telemetry_fields.len() == self.registration_info.telemetry_count as usize
-            && self.parameter_fields.len() == self.registration_info.parameter_count as usize
+    pub fn node_registration_complete(&self) -> bool {
+        let all_fields_registered = self.telemetry_fields.len()
+            == self.registration_info.telemetry_count as usize
+            && self.parameter_fields.len() == self.registration_info.parameter_count as usize;
+
+        let all_telemetry_groups_registered = self
+            .telemetry_groups
+            .values()
+            .map(|group| group.fields.len())
+            .sum::<usize>()
+            == self.registration_info.telemetry_count as usize;
+
+        all_fields_registered && all_telemetry_groups_registered
     }
 }
 
