@@ -19,7 +19,7 @@ fn main() -> Result<()> {
     let event_dispatcher = events::EventDispatcher::new();
 
     std::thread::scope::<'_, _, Result<()>>(|scope| {
-        can::spawn_can_threads("vcan0", &event_dispatcher, scope)?;
+        can::spawn_can_threads(&["vcan0"], &event_dispatcher, scope)?;
         db::spawn_logging_worker(
             "postgres://postgres:@localhost/ferroflow".into(),
             &event_dispatcher,
