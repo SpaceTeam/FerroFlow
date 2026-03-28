@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Mutex, mpsc::Sender},
-};
+use std::{collections::HashMap, sync::Mutex};
 
 use anyhow::anyhow;
 use anyhow::{Context, Result, bail};
@@ -10,11 +7,10 @@ use dashmap::DashMap;
 use liquidcan::{
     CanMessage, CanMessageId,
     payloads::{
-        CanDataType, CanDataValue, FieldGetResPayload, FieldRegistrationPayload,
-        NodeInfoResPayload, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
+        CanDataValue, FieldGetResPayload, FieldRegistrationPayload, NodeInfoResPayload,
+        TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
     },
 };
-use socketcan::{CanAnyFrame, CanFdFrame, EmbeddedFrame, Frame, Id};
 
 use crate::{db::FieldLog, events};
 
@@ -186,7 +182,7 @@ impl<'a> NodeManager<'a> {
 
         let node_id = can_msg_id.sender_id();
 
-        let mut node = self.can_nodes.get(&node_id).with_context(|| {
+        let node = self.can_nodes.get(&node_id).with_context(|| {
             format!(
                 "received telemetry group update for node {} but it is not registered",
                 node_id

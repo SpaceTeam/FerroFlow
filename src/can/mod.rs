@@ -2,7 +2,7 @@
 
 use std::{
     sync::{Arc, mpsc},
-    thread::{self, Scope},
+    thread::Scope,
 };
 
 use anyhow::{Context, Result, bail, ensure};

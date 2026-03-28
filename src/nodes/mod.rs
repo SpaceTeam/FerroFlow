@@ -14,7 +14,7 @@ pub fn spawn_node_manager_thread<'a>(
     scope: &'a std::thread::Scope<'a, '_>,
 ) {
     scope.spawn(|| {
-        let mut node_manager = NodeManager::new(event_dispatcher);
+        let node_manager = NodeManager::new(event_dispatcher);
         let (tx, rx) = mpsc::channel::<events::Event>();
         event_dispatcher.subscribe(tx);
 

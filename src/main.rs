@@ -1,8 +1,5 @@
-#![allow(unused)] // TODO: Remove this when we have more code in place.
-
+#![allow(clippy::single_match)]
 use anyhow::Result;
-
-use crate::nodes::NodeManager;
 
 mod can;
 mod config;
@@ -13,11 +10,11 @@ mod sequence;
 mod socket;
 
 fn main() -> Result<()> {
-    let config = config::load_config()?;
+    let _config = config::load_config()?;
 
     let event_dispatcher = events::EventDispatcher::new();
 
-    std::thread::scope::<'_, _, Result<()>>(|scope| {
+    let _ = std::thread::scope::<'_, _, Result<()>>(|scope| {
         can::spawn_can_threads(&["vcan0"], &event_dispatcher, scope)?;
         db::spawn_logging_worker(
             "postgres://postgres:@localhost/ferroflow".into(),

@@ -3,7 +3,7 @@
 use std::sync::{RwLock, mpsc::Sender};
 
 use liquidcan::{CanMessage, CanMessageId};
-use socketcan::{CanAnyFrame, CanFdFrame};
+use socketcan::CanAnyFrame;
 
 #[derive(Clone)]
 pub enum Event {
@@ -12,6 +12,7 @@ pub enum Event {
         message: CanMessage,
     },
     NodeFieldUpdated(crate::db::FieldLog),
+    #[allow(unused)]
     SendCanMessage {
         receiver_node_id: u8,
         message: CanMessage,
