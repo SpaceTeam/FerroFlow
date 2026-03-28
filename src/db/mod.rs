@@ -48,10 +48,10 @@ pub fn spawn_logging_worker<'a>(
                     }
                 }
                 Ok(Event::Shutdown) => {
-                    if !batch.is_empty() {
-                        if let Err(error) = flush_batch(&mut conn, &mut batch) {
-                            eprintln!("Database logging worker error: {error:#}");
-                        }
+                    if !batch.is_empty()
+                        && let Err(error) = flush_batch(&mut conn, &mut batch)
+                    {
+                        eprintln!("Database logging worker error: {error:#}");
                     }
                     println!("Worker shutting down gracefully.");
                     break;
@@ -103,8 +103,7 @@ mod tests {
     use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
     use serde_json::json;
     use testcontainers::{
-        GenericImage,
-        ImageExt,
+        GenericImage, ImageExt,
         core::{IntoContainerPort, WaitFor},
         runners::SyncRunner,
     };
@@ -156,9 +155,7 @@ mod tests {
         let port = container
             .get_host_port_ipv4(5432)
             .expect("postgres port should be mapped");
-        let database_url = format!(
-            "postgres://postgres:postgres@{host}:{port}/ferroflow_test"
-        );
+        let database_url = format!("postgres://postgres:postgres@{host}:{port}/ferroflow_test");
 
         let mut conn = connect_with_retry(&database_url);
         conn.run_pending_migrations(MIGRATIONS)

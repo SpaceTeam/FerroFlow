@@ -3,11 +3,10 @@ use std::{thread, time::Duration};
 use chrono::Utc;
 use diesel::{PgConnection, QueryableByName, RunQueryDsl, prelude::*};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use FerroFlow::{db, events};
+use ferro_flow::{db, events};
 use serde_json::json;
 use testcontainers::{
-    GenericImage,
-    ImageExt,
+    GenericImage, ImageExt,
     core::{IntoContainerPort, WaitFor},
     runners::SyncRunner,
 };
@@ -67,9 +66,7 @@ fn start_timescaledb_test_database() -> (testcontainers::Container<GenericImage>
     let port = container
         .get_host_port_ipv4(5432)
         .expect("postgres port should be mapped");
-    let database_url = format!(
-        "postgres://postgres:postgres@{host}:{port}/ferroflow_test"
-    );
+    let database_url = format!("postgres://postgres:postgres@{host}:{port}/ferroflow_test");
 
     let mut conn = connect_with_retry(&database_url);
     conn.run_pending_migrations(MIGRATIONS)

@@ -19,13 +19,10 @@ pub fn spawn_node_manager_thread<'a>(
         event_dispatcher.subscribe(tx);
 
         while let Ok(event) = rx.recv() {
-            match event {
-                events::Event::CanMessageReceived { id, message } => {
-                    if let Err(error) = node_manager.handle_can_message_from_node(id, message) {
-                        eprintln!("Error handling CAN message in NodeManager: {error:#}");
-                    }
-                }
-                _ => {}
+            if let events::Event::CanMessageReceived { id, message } = event
+                && let Err(error) = node_manager.handle_can_message_from_node(id, message)
+            {
+                eprintln!("Error handling CAN message in NodeManager: {error:#}");
             }
         }
     });
