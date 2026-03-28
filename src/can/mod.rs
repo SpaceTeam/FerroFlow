@@ -5,8 +5,9 @@ use std::{
     thread::{self, Scope},
 };
 
-use anyhow::{Context, Result, ensure};
-use socketcan::{CanAnyFrame, CanFdSocket, Socket};
+use anyhow::{Context, Result, bail, ensure};
+use liquidcan::{CanMessage, CanMessageId, NODE_ID_BROADCAST, NODE_ID_INVALID, NODE_ID_SERVER};
+use socketcan::{CanAnyFrame, CanFdFrame, CanFdSocket, EmbeddedFrame, Frame, Socket, StandardId};
 
 use crate::events::{self, Event, EventDispatcher};
 
@@ -54,14 +55,47 @@ fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &Ev
     event_dispatcher.subscribe(sender);
 
     while let Ok(event) = receiver.recv() {
-        let events::Event::SendCanMessage(frame) = event else {
-            continue;
-        };
+        match event {
+            events::Event::SendCanMessage {
+                receiver_node_id,
+                message,
+            } => {
+                for (interface, socket) in &sockets {
+                    let mut frame: CanFdFrame = (&message).into();
 
-        for (interface, socket) in &sockets {
-            if let Err(error) = send_frame(interface, socket, &frame) {
-                eprintln!("CAN send thread error on {interface}: {error:#}");
+                    let id = CanMessageId::new()
+                        .with_receiver_id(receiver_node_id)
+                        .with_sender_id(NODE_ID_SERVER);
+                    let Some(can_id) = StandardId::new(id.into()) else {
+                        eprintln!(
+                            "Failed to convert CAN message ID to standard CAN ID for interface {interface}, message ID: {:#010x}",
+                            u16::from(id)
+                        );
+                        continue;
+                    };
+                    frame.set_id(can_id);
+
+                    let frame = CanAnyFrame::Fd(frame);
+
+                    if let Err(error) = send_frame(interface, socket, &frame) {
+                        eprintln!("CAN send thread error on {interface}: {error:#}");
+                    }
+                }
             }
+            events::Event::RelayCanMessage {
+                from_interface,
+                frame,
+            } => {
+                for (interface, socket) in &sockets {
+                    if *interface == from_interface {
+                        continue; // Don't send back to the sender
+                    }
+                    if let Err(error) = send_frame(interface, socket, &frame) {
+                        eprintln!("CAN send thread error on {interface}: {error:#}");
+                    }
+                }
+            }
+            _ => continue,
         }
     }
 }
@@ -74,7 +108,47 @@ fn receive_frame(
     let frame = socket
         .read_frame()
         .with_context(|| format!("failed to read CAN frame on interface {}", interface))?;
-    event_dispatcher.dispatch(Event::CanMessageReceived(frame));
+
+    let CanAnyFrame::Fd(frame) = frame else {
+        anyhow::bail!(
+            "received non-FD CAN frame on interface {}, {:?}",
+            interface,
+            frame
+        );
+    };
+
+    let raw_id = match frame.id() {
+        socketcan::Id::Standard(id) => id.as_raw(),
+        socketcan::Id::Extended(id) => id.standard_id().as_raw(),
+    };
+    let message_id: liquidcan::CanMessageId = raw_id.into();
+
+    if message_id.receiver_id() == NODE_ID_INVALID {
+        bail!(
+            "received CAN message with invalid receiver ID on interface {}, id: {raw_id:#010x}",
+            interface
+        );
+    }
+
+    if message_id.receiver_id() == NODE_ID_BROADCAST || message_id.receiver_id() == NODE_ID_SERVER {
+        let message = CanMessage::try_from(frame).with_context(|| {
+            format!(
+                "failed to parse CAN frame into CanMessage for node {}",
+                message_id.sender_id()
+            )
+        })?;
+
+        event_dispatcher.dispatch(Event::CanMessageReceived {
+            id: message_id,
+            message,
+        });
+    } else {
+        // broadcast this to all other interfaces.
+        event_dispatcher.dispatch(Event::RelayCanMessage {
+            from_interface: interface.to_string(),
+            frame: CanAnyFrame::Fd(frame),
+        });
+    }
     Ok(())
 }
 

@@ -15,7 +15,6 @@ mod socket;
 fn main() -> Result<()> {
     let config = config::load_config()?;
 
-    let mut node_manager = NodeManager::new();
     let event_dispatcher = events::EventDispatcher::new();
 
     std::thread::scope::<'_, _, Result<()>>(|scope| {
@@ -25,6 +24,7 @@ fn main() -> Result<()> {
             &event_dispatcher,
             scope,
         )?;
+        nodes::spawn_node_manager_thread(&event_dispatcher, scope);
 
         Ok(())
     });

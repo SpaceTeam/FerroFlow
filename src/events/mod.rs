@@ -2,13 +2,24 @@
 
 use std::sync::{RwLock, mpsc::Sender};
 
-use socketcan::CanAnyFrame;
+use liquidcan::{CanMessage, CanMessageId};
+use socketcan::{CanAnyFrame, CanFdFrame};
 
 #[derive(Clone)]
 pub enum Event {
-    CanMessageReceived(CanAnyFrame),
+    CanMessageReceived {
+        id: CanMessageId,
+        message: CanMessage,
+    },
     NodeFieldUpdated(crate::db::FieldLog),
-    SendCanMessage(CanAnyFrame),
+    SendCanMessage {
+        receiver_node_id: u8,
+        message: CanMessage,
+    },
+    RelayCanMessage {
+        from_interface: String,
+        frame: CanAnyFrame,
+    },
 }
 
 pub struct EventDispatcher {
