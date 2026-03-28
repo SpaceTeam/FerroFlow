@@ -101,7 +101,18 @@ impl NodeManager {
             device_name: node_info_res.device_name.into(),
         };
 
-        self.register_node(node_id, registration_info)
+        let node = CanNode::new(registration_info);
+
+        if node.node_registration_complete() {
+            self.can_nodes.insert(node_id, node);
+        } else {
+            self.registering_nodes
+                .lock()
+                .map_err(|e| anyhow!("Mutex was poisoned: {}", e))?
+                .insert(node_id, node);
+        }
+
+        Ok(())
     }
 
     pub fn handle_field_registration(
@@ -309,15 +320,6 @@ impl NodeManager {
             .send(telemetry_log)
             .context("failed to send field log to database logging worker")?;
 
-        Ok(())
-    }
-
-    fn register_node(&self, node_id: u8, registration_info: RegistrationInfo) -> Result<()> {
-        let node = CanNode::new(registration_info);
-        self.registering_nodes
-            .lock()
-            .map_err(|e| anyhow!("Mutex was poisoned: {}", e))?
-            .insert(node_id, node);
         Ok(())
     }
 
