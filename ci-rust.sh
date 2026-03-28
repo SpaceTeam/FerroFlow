@@ -47,6 +47,8 @@ run_step() {
             print_step "Run tests"
             cd "$PROJECT_DIR"
             cargo test --verbose || { print_error "Tests failed"; return 1; }
+            cargo test flush_batch_inserts_logs_into_timescaledb -- --ignored --nocapture || { print_error "Ignored unit test failed"; return 1; }
+            cargo test logging_worker_persists_events_to_timescaledb -- --ignored --nocapture || { print_error "Ignored integration test failed"; return 1; }
             print_success "Tests passed"
             ;;
         

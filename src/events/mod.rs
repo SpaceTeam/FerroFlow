@@ -12,6 +12,7 @@ pub enum Event {
         message: CanMessage,
     },
     NodeFieldUpdated(crate::db::FieldLog),
+    Shutdown,
     #[allow(unused)]
     SendCanMessage {
         receiver_node_id: u8,

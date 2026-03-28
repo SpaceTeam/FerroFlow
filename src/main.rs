@@ -1,13 +1,6 @@
 #![allow(clippy::single_match)]
 use anyhow::Result;
-
-mod can;
-mod config;
-mod db;
-mod events;
-mod nodes;
-mod sequence;
-mod socket;
+use FerroFlow::{can, config, db, events, nodes};
 
 fn main() -> Result<()> {
     let _config = config::load_config()?;
