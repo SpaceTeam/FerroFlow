@@ -28,7 +28,7 @@ pub fn spawn_logging_worker<'a>(
     let mut conn =
         PgConnection::establish(&database_url).context("failed to connect to database")?;
     let (tx, rx) = mpsc::channel::<events::Event>();
-    event_dispatcher.subscribe(tx);
+    event_dispatcher.subscribe(tx, "Database logging thread");
 
     scope.spawn(move || {
         // Write to the db in batches for better performance

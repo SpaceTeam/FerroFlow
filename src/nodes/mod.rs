@@ -15,7 +15,7 @@ pub fn spawn_node_manager_thread<'a>(
     scope: &'a std::thread::Scope<'a, '_>,
 ) {
     let (tx, rx) = mpsc::channel::<events::Event>();
-    event_dispatcher.subscribe(tx);
+    event_dispatcher.subscribe(tx, "NodeManager thread");
     scope.spawn(move || {
         while let Ok(event) = rx.recv() {
             if let events::Event::CanMessageReceived { id, message } = event

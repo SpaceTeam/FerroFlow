@@ -52,7 +52,7 @@ fn can_recv_thread(interface: &str, socket: Arc<CanFdSocket>, event_dispatcher: 
 
 fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &EventDispatcher) {
     let (sender, receiver) = mpsc::channel::<events::Event>();
-    event_dispatcher.subscribe(sender);
+    event_dispatcher.subscribe(sender, "CAN send thread");
 
     while let Ok(event) = receiver.recv() {
         match event {
