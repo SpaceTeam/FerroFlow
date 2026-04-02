@@ -133,8 +133,9 @@ fn receive_frame(
     if message_id.receiver_id() == NODE_ID_BROADCAST || message_id.receiver_id() == NODE_ID_SERVER {
         let message = CanMessage::try_from(frame).with_context(|| {
             format!(
-                "failed to parse CAN frame into CanMessage for node {}",
-                message_id.sender_id()
+                "failed to parse CAN frame into CanMessage for node {}. Frame content: {:02x?}",
+                message_id.sender_id(),
+                frame.data()
             )
         })?;
 
