@@ -130,6 +130,7 @@ fn receive_frame(
         );
     }
 
+    // TODO: Currently broadcast messages are not relayed. We should check if any client nodes ever need to broadcast messages and if so, what other nodes they need to reach.
     if message_id.receiver_id() == NODE_ID_BROADCAST || message_id.receiver_id() == NODE_ID_SERVER {
         let message = CanMessage::try_from(frame).with_context(|| {
             format!(
