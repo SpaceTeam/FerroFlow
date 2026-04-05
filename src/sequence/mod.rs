@@ -1,5 +1,7 @@
 //! Code for managing and running sequences.
 
+#![allow(unused)]
+
 use std::{
     sync::mpsc,
     thread,

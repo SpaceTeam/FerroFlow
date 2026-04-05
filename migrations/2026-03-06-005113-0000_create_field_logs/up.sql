@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
 CREATE TABLE field_logs (
     timestamp TIMESTAMPTZ NOT NULL,
     node_id smallint not null,

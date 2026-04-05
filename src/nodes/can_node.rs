@@ -39,6 +39,7 @@ impl CanNode {
     }
 }
 
+#[allow(unused)]
 pub struct RegistrationInfo {
     pub telemetry_count: u8,
     pub parameter_count: u8,

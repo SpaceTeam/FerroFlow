@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Mutex, mpsc::Sender},
-};
+use std::{collections::HashMap, sync::Mutex};
 
 use anyhow::anyhow;
 use anyhow::{Context, Result, bail};
@@ -10,79 +7,58 @@ use dashmap::DashMap;
 use liquidcan::{
     CanMessage, CanMessageId,
     payloads::{
-        CanDataType, CanDataValue, FieldGetResPayload, FieldRegistrationPayload,
-        NodeInfoResPayload, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
+        CanDataValue, FieldGetResPayload, FieldRegistrationPayload, NodeInfoResPayload,
+        TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
     },
 };
-use socketcan::{CanAnyFrame, EmbeddedFrame, Frame, Id};
 
-use crate::db::FieldLog;
+use crate::{db::FieldLog, events};
 
 use super::can_node::{CanNode, FieldInfo, RegistrationInfo, TelemetryGroupDefinition};
 
-pub struct NodeManager {
+pub struct NodeManager<'a> {
     can_nodes: DashMap<u8, CanNode>,
 
     // Nodes that did not yet receive all their field registrations.
     registering_nodes: Mutex<HashMap<u8, CanNode>>,
+    event_dispatcher: &'a events::EventDispatcher,
 }
 
-impl NodeManager {
-    pub fn new() -> Self {
+impl<'a> NodeManager<'a> {
+    pub fn new(event_dispatcher: &'a events::EventDispatcher) -> Self {
         Self {
             can_nodes: DashMap::new(),
             registering_nodes: Mutex::new(HashMap::new()),
+            event_dispatcher,
         }
     }
 
     pub fn handle_can_message_from_node(
         &self,
-        frame: CanAnyFrame,
-        db_sender: &Sender<FieldLog>,
+        message_id: CanMessageId,
+        message: CanMessage,
     ) -> Result<()> {
-        match frame {
-            CanAnyFrame::Fd(frame) => {
-                let raw_id = match frame.id() {
-                    Id::Standard(id) => id.as_raw(),
-                    Id::Extended(id) => id.standard_id().as_raw(),
-                };
-                let message_id: CanMessageId = raw_id.into();
-                let message = CanMessage::try_from(frame).with_context(|| {
-                    format!(
-                        "failed to parse CAN frame into CanMessage for node {}",
-                        message_id.sender_id()
-                    )
-                })?;
-
-                match message {
-                    CanMessage::NodeInfoAnnouncement { payload } => {
-                        self.handle_node_info_announcement(message_id, payload)
-                    }
-                    CanMessage::TelemetryValueRegistration { payload } => {
-                        self.handle_field_registration(message_id, payload, true)
-                    }
-                    CanMessage::ParameterRegistration { payload } => {
-                        self.handle_field_registration(message_id, payload, false)
-                    }
-                    CanMessage::TelemetryGroupDefinition { payload } => {
-                        self.handle_telemetry_group_definition(message_id, payload)
-                    }
-                    CanMessage::TelemetryGroupUpdate { payload } => {
-                        self.handle_telemetry_group_update(message_id, payload, db_sender)
-                    }
-                    CanMessage::FieldGetRes { payload } => {
-                        self.handle_field_get_res(message_id, payload, db_sender)
-                    }
-                    _ => bail!(
-                        "received unsupported CAN message from node {}: {:?}",
-                        message_id.sender_id(),
-                        message
-                    ),
-                }
+        match message {
+            CanMessage::NodeInfoAnnouncement { payload } => {
+                self.handle_node_info_announcement(message_id, payload)
             }
+            CanMessage::TelemetryValueRegistration { payload } => {
+                self.handle_field_registration(message_id, payload, true)
+            }
+            CanMessage::ParameterRegistration { payload } => {
+                self.handle_field_registration(message_id, payload, false)
+            }
+            CanMessage::TelemetryGroupDefinition { payload } => {
+                self.handle_telemetry_group_definition(message_id, payload)
+            }
+            CanMessage::TelemetryGroupUpdate { payload } => {
+                self.handle_telemetry_group_update(message_id, payload)
+            }
+            CanMessage::FieldGetRes { payload } => self.handle_field_get_res(message_id, payload),
             _ => bail!(
-                "received non-FD CAN frame, which is not supported: {:?}",
-                frame
+                "received unsupported CAN message from node {}: {:?}",
+                message_id.sender_id(),
+                message
             ),
         }
     }
@@ -201,13 +177,12 @@ impl NodeManager {
         &self,
         can_msg_id: CanMessageId,
         group_update: TelemetryGroupUpdatePayload,
-        sender: &Sender<FieldLog>,
     ) -> Result<()> {
         let timestamp = Utc::now();
 
         let node_id = can_msg_id.sender_id();
 
-        let mut node = self.can_nodes.get(&node_id).with_context(|| {
+        let node = self.can_nodes.get(&node_id).with_context(|| {
             format!(
                 "received telemetry group update for node {} but it is not registered",
                 node_id
@@ -260,9 +235,8 @@ impl NodeManager {
                 field_name: field_info.name.clone(),
                 field_value: Self::can_data_value_to_json(value),
             };
-            sender
-                .send(telemetry_log)
-                .context("failed to send field log to database logging worker")?;
+            self.event_dispatcher
+                .dispatch(events::Event::NodeFieldUpdated(telemetry_log));
         }
 
         Ok(())
@@ -272,7 +246,6 @@ impl NodeManager {
         &self,
         can_msg_id: CanMessageId,
         res: FieldGetResPayload,
-        sender: &Sender<FieldLog>,
     ) -> Result<()> {
         let timestamp = Utc::now();
 
@@ -316,9 +289,8 @@ impl NodeManager {
             field_value: Self::can_data_value_to_json(value),
         };
 
-        sender
-            .send(telemetry_log)
-            .context("failed to send field log to database logging worker")?;
+        self.event_dispatcher
+            .dispatch(events::Event::NodeFieldUpdated(telemetry_log));
 
         Ok(())
     }

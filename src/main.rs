@@ -1,33 +1,24 @@
-#![allow(unused)] // TODO: Remove this when we have more code in place.
-
+#![allow(clippy::single_match)]
 use anyhow::Result;
-
-use crate::nodes::NodeManager;
-
-mod can;
-mod config;
-mod db;
-mod nodes;
-mod sequence;
-mod socket;
+use ferro_flow::{can, config, db, events, nodes};
 
 fn main() -> Result<()> {
-    let config = config::load_config()?;
+    let _config = config::load_config()?;
 
-    let mut node_manager = NodeManager::new();
+    let event_dispatcher = events::EventDispatcher::new();
 
-    // Start the CAN threads
-    let (can_receiver, can_sender, can_thread_handles) = can::spawn_can_threads("can0")?;
+    let _ = std::thread::scope::<'_, _, Result<()>>(|scope| {
+        let node_manager = nodes::NodeManager::new(&event_dispatcher);
+        can::spawn_can_threads(&["vcan0"], &event_dispatcher, scope)?;
+        db::spawn_logging_worker(
+            "postgres://postgres:@localhost/ferroflow".into(),
+            &event_dispatcher,
+            scope,
+        )?;
+        nodes::spawn_node_manager_thread(node_manager, &event_dispatcher, scope);
 
-    // Start the database logging worker
-    let (db_sender, db_thread_handle) =
-        db::spawn_logging_worker("DATABASE_URL=postgres://postgres:@localhost/ferroflow".into())?;
-
-    while let Ok(frame) = can_receiver.recv() {
-        if let Err(error) = node_manager.handle_can_message_from_node(frame, &db_sender) {
-            eprintln!("Failed to process CAN frame: {error:#}");
-        }
-    }
+        Ok(())
+    });
 
     Ok(())
 }
