@@ -3,7 +3,7 @@ use anyhow::Result;
 use ferro_flow::{can, config, db, events, nodes};
 
 fn main() -> Result<()> {
-    let _config = config::load_config()?;
+    let _config = config::load_config("config.yml")?;
 
     let event_dispatcher = events::EventDispatcher::new();
 
@@ -11,7 +11,7 @@ fn main() -> Result<()> {
     let _ = std::thread::scope::<'_, _, Result<()>>(|scope| {
         can::spawn_can_threads(&["vcan0"], &event_dispatcher, scope)?;
         db::spawn_logging_worker(
-            "postgres://postgres:@localhost/ferroflow".into(),
+            format!("DATABASE_URL=postgres://{}",config.database_url).into(),
             &event_dispatcher,
             scope,
         )?;
@@ -23,8 +23,8 @@ fn main() -> Result<()> {
             scope,
         );
 
+
         Ok(())
     });
-
     Ok(())
 }
