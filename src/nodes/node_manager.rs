@@ -7,8 +7,8 @@ use dashmap::DashMap;
 use liquidcan::{
     CanMessage, CanMessageId,
     payloads::{
-        CanDataValue, FieldGetResPayload, FieldRegistrationPayload, NodeInfoResPayload,
-        TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
+        CanDataValue, FieldGetResPayload, FieldRegistrationPayload, HeartbeatPayload,
+        NodeInfoResPayload, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
     },
 };
 
@@ -55,6 +55,7 @@ impl<'a> NodeManager<'a> {
                 self.handle_telemetry_group_update(message_id, payload)
             }
             CanMessage::FieldGetRes { payload } => self.handle_field_get_res(message_id, payload),
+            CanMessage::HeartbeatRes { payload } => self.handle_heartbeat_res(message_id, payload),
             _ => bail!(
                 "received unsupported CAN message from node {}: {:?}",
                 message_id.sender_id(),
@@ -291,6 +292,56 @@ impl<'a> NodeManager<'a> {
 
         self.event_dispatcher
             .dispatch(events::Event::NodeFieldUpdated(telemetry_log));
+
+        Ok(())
+    }
+
+    pub fn handle_heartbeat_res(
+        &self,
+        can_msg_id: CanMessageId,
+        payload: HeartbeatPayload,
+    ) -> Result<()> {
+        let timestamp = Utc::now();
+        let node_id = can_msg_id.sender_id();
+
+        let node = self.can_nodes.get(&node_id).with_context(|| {
+            format!(
+                "received heartbeat response for node {} but it is not registered",
+                node_id
+            )
+        })?;
+
+        let mut latest_heartbeat = node
+            .latest_heartbeat_received
+            .write()
+            .map_err(|error| anyhow!("RwLock was poisoned: {}", error))?;
+
+        *latest_heartbeat = Some((timestamp, payload.counter));
+
+        Ok(())
+    }
+
+    pub fn dispatch_heartbeat_requests(&self) -> Result<()> {
+        for node_entry in self.can_nodes.iter() {
+            let node_id = *node_entry.key();
+            let next_heartbeat = node_entry
+                .latest_heartbeat_sent
+                .read()
+                .map_err(|error| anyhow!("RwLock was poisoned: {}", error))?
+                .as_ref()
+                .map(|(_, counter)| *counter + 1)
+                .unwrap_or(0);
+
+            self.event_dispatcher
+                .dispatch(events::Event::SendCanMessage {
+                    receiver_node_id: node_id,
+                    message: CanMessage::HeartbeatReq {
+                        payload: HeartbeatPayload {
+                            counter: next_heartbeat,
+                        },
+                    },
+                });
+        }
 
         Ok(())
     }
