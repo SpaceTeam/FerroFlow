@@ -1,0 +1,37 @@
+#:schema ../../sequences/_schema.json
+
+name = "Test Sequence Valid"
+
+[globals]
+start_time = -2
+end_time = 5
+interpolations = { servo1 = "linear", servo2 = "none" }
+interpolation_interval = 0.1
+
+[[steps]]
+name = "Step1"
+description = "Description of Step1"
+timestamp = 1.0
+set_params = [
+  { timestamp = 0.0, param = "servo1", value = 12 },
+  { timestamp = 0.5, param = "valve1", value = 12 },
+]
+
+[[steps]]
+name = "Hold1"
+timestamp = 2.0
+hold = "always"
+
+[[steps]]
+name = "Hold2"
+timestamp = 3.0
+hold = [
+  { field = "servo1", is = "greater", value = 5 },
+  { field = "valve1", is = "equal", value = 0 },
+]
+
+[[steps]]
+name = "Step2"
+description = "Description of Step2"
+timestamp = 4.0
+set_params = [{ timestamp = 0.1, param = "servo1", value = 12 }]

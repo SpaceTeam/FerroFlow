@@ -1,0 +1,21 @@
+##:schema ../../sequences/_schema.json
+
+name = "Test Sequence Invalid: step times"
+
+[globals]
+start_time = -2
+end_time = 5
+interpolations = { servo1 = "linear", servo2 = "none" }
+interpolation_interval = 0.1
+
+[[steps]]
+name = "Step1"
+description = "Description of Step1"
+timestamp = -9
+set_params = []
+
+[[steps]]
+name = "Step2"
+description = "Description of Step2"
+timestamp = 9
+set_params = []
