@@ -59,8 +59,9 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
             return Err(anyhow!("another sequence is still running"));
         }
 
-        let seq = Self::load_sequence(seq_name)?;
-        let abort_seq = Self::load_sequence(abort_seq_name)?;
+        let seq_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("sequences");
+        let seq = Sequence::load_from_path(&seq_dir.join(seq_name))?;
+        let abort_seq = Sequence::load_from_path(&seq_dir.join(abort_seq_name))?;
         let (controller_tx, controller_rx) = mpsc::channel();
         let event_dispatcher = self.event_dispatcher;
 
@@ -98,15 +99,6 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
         self.last_sequence_handle
             .as_ref()
             .is_some_and(|handle| !handle.thread_handle.is_finished())
-    }
-
-    fn load_sequence(file_name: String) -> Result<Sequence> {
-        // TODO: implement a better way of loading sequences, from the frontend
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("sequences")
-            .join(format!("{file_name}"));
-        Sequence::load_from_path(path.as_path())
     }
 
     /// Converts a `Sequence` into a list of `ScheduledAction` by interpolating any values that need it.
