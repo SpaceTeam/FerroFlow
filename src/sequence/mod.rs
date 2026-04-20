@@ -19,7 +19,10 @@ pub fn spawn_sequence_runner_thread<'scope>(
 
         while let Ok(event) = rx.recv() {
             match event {
-                events::Event::Shutdown => break,
+                events::Event::Shutdown => {
+                    sequence_runner.control_sequence(SequenceCmd::Shutdown);
+                    break;
+                }
                 events::Event::StartSequence {
                     seq_name,
                     abort_seq_name,

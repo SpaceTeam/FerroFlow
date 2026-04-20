@@ -26,11 +26,12 @@ pub enum SequenceCmd {
     Pause,
     Resume,
     Abort,
+    Shutdown,
 }
 
 pub enum SequenceRunError {
     Aborted,
-    HandleDropped,
+    Shutdown,
 }
 
 pub struct SequenceRunner<'scope, 'env> {
@@ -62,6 +63,7 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
         let seq_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("sequences");
         let seq = Sequence::load_from_path(&seq_dir.join(seq_name))?;
         let abort_seq = Sequence::load_from_path(&seq_dir.join(abort_seq_name))?;
+
         let (controller_tx, controller_rx) = mpsc::channel();
         let event_dispatcher = self.event_dispatcher;
 
@@ -72,7 +74,11 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
 
             match result {
                 Ok(_) => Ok(()), // execution finished nominal
-                Err(_) => Self::execute_schedule(abort_schedule, &controller_rx, event_dispatcher), // execution was aborted, start abort sequence
+                Err(SequenceRunError::Aborted) => {
+                    // execution was aborted, start abort sequence
+                    Self::execute_schedule(abort_schedule, &controller_rx, event_dispatcher)
+                }
+                Err(SequenceRunError::Shutdown) => Err(SequenceRunError::Shutdown), // server shutdown
             }
         });
 
@@ -165,6 +171,7 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
         let mut pause_offset = Duration::ZERO;
 
         for action in schedule {
+            // loop to wait for next action
             loop {
                 let deadline = origin + Duration::from_secs_f64(action.timestamp) + pause_offset;
                 let now = Instant::now();
@@ -180,10 +187,8 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
                         pause_offset += pause_duration;
                     }
                     Ok(SequenceCmd::Abort) => return Err(SequenceRunError::Aborted), // abort
-                    Err(RecvTimeoutError::Disconnected) => {
-                        return Err(SequenceRunError::HandleDropped);
-                    }
-                    // The caller dropped the handle without explicitly calling cancel(), abort
+                    Ok(SequenceCmd::Shutdown) => return Err(SequenceRunError::Shutdown), // server shutdown
+                    Err(RecvTimeoutError::Disconnected) => return Err(SequenceRunError::Shutdown), // The caller dropped the handle without explicitly calling cancel(), abort
                     Err(RecvTimeoutError::Timeout) => break, // deadline reached, break loop
                 };
             }
@@ -230,10 +235,11 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
         let paused_at = Instant::now();
         loop {
             match controller.recv() {
-                Ok(SequenceCmd::Resume) => return Ok(paused_at.elapsed()),
                 Ok(SequenceCmd::Pause) => continue, // already paused, ignore
+                Ok(SequenceCmd::Resume) => return Ok(paused_at.elapsed()),
                 Ok(SequenceCmd::Abort) => return Err(SequenceRunError::Aborted), // abort
-                Err(_) => return Err(SequenceRunError::HandleDropped), // The caller dropped the handle without explicitly calling cancel(), abort
+                Ok(SequenceCmd::Shutdown) => return Err(SequenceRunError::Shutdown), // server shutdown
+                Err(_) => return Err(SequenceRunError::Shutdown), // The caller dropped the handle without explicitly calling cancel(), shutdown
             }
         }
     }
