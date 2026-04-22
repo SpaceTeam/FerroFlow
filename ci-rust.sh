@@ -34,22 +34,22 @@ export CARGO_TERM_COLOR=always
 # Function to run a specific step or all steps
 run_step() {
     local step=$1
-    
+
     case $step in
         build)
             print_step "Build"
             cd "$PROJECT_DIR"
-            cargo build --verbose || { print_error "Build failed"; return 1; }
+            cargo build || { print_error "Build failed"; return 1; }
             print_success "Build completed"
             ;;
-        
+
         test)
             print_step "Run tests"
             cd "$PROJECT_DIR"
-            cargo test --verbose || { print_error "Tests failed"; return 1; }
+            cargo test || { print_error "Tests failed"; return 1; }
             print_success "Tests passed"
             ;;
-        
+
         fmt)
             print_step "Check formatting"
             cd "$PROJECT_DIR"
@@ -63,7 +63,7 @@ run_step() {
             cargo fmt --all || { print_error "Formatting fix failed"; return 1; }
             print_success "Formatting fixed"
             ;;
-        
+
         clippy)
             print_step "Run clippy"
             cd "$PROJECT_DIR"
@@ -79,7 +79,6 @@ run_step() {
             ;;
 
         all)
-            run_step build || return 1
             run_step fmt || return 1
             run_step clippy || return 1
             run_step test || return 1
