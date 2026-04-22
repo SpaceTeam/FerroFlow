@@ -61,6 +61,12 @@ impl Sequence {
                 step.name,
             );
 
+            anyhow::ensure!(
+                !step.actions.is_empty(),
+                "Invalid step '{}' has no actions",
+                step.name,
+            );
+
             for action in &step.actions {
                 if let Action::SetParam(fv) = action {
                     anyhow::ensure!(
