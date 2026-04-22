@@ -68,27 +68,38 @@ impl Sequence {
             );
 
             for action in &step.actions {
-                if let Action::SetParam(fv) = action {
-                    anyhow::ensure!(
-                        fv.timestamp >= step.timestamp,
-                        "Invalid action timestamp in step '{}' action '{}', before step timestamp",
-                        step.name,
-                        fv.param,
-                    );
+                match action {
+                    Action::SetParam(fv) => {
+                        anyhow::ensure!(
+                            fv.timestamp >= step.timestamp,
+                            "Invalid action timestamp in step '{}' action '{}', before step timestamp",
+                            step.name,
+                            fv.param,
+                        );
 
-                    anyhow::ensure!(
-                        fv.timestamp <= self.globals.end_time,
-                        "Invalid action timestamp in step '{}' action '{}', after global end time",
-                        step.name,
-                        fv.param,
-                    );
+                        anyhow::ensure!(
+                            fv.timestamp <= self.globals.end_time,
+                            "Invalid action timestamp in step '{}' action '{}', after global end time",
+                            step.name,
+                            fv.param,
+                        );
 
-                    anyhow::ensure!(
-                        fv.timestamp <= next.timestamp,
-                        "Invalid action timestamp in step '{}' action '{}', after next step timestamp",
-                        step.name,
-                        fv.param,
-                    );
+                        anyhow::ensure!(
+                            fv.timestamp <= next.timestamp,
+                            "Invalid action timestamp in step '{}' action '{}', after next step timestamp",
+                            step.name,
+                            fv.param,
+                        );
+                    }
+                    Action::Hold(hold_mode) => {
+                        if let HoldMode::Conditional(conditions) = hold_mode {
+                            anyhow::ensure!(
+                                !conditions.is_empty(),
+                                "Invalid hold in step '{}' has conditions",
+                                step.name,
+                            );
+                        }
+                    }
                 }
             }
         }
