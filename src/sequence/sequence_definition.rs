@@ -267,23 +267,31 @@ mod tests {
     fn test_load_invalid_global_times() {
         let seq = Sequence::load_from_path(&sequence_path("invalid_global_times.toml"));
         assert!(seq.is_err());
+        let err_msg = format!("{:#}", seq.unwrap_err()); 
+        assert!(err_msg.contains("Invalid start time is after timestamp"));
     }
 
     #[test]
     fn test_load_invalid_interpolation_interval() {
         let seq = Sequence::load_from_path(&sequence_path("invalid_interpolation_interval.toml"));
         assert!(seq.is_err());
+        let err_msg = format!("{:#}", seq.unwrap_err()); 
+        assert!(err_msg.contains("Invalid interpolations interval"));
     }
 
     #[test]
     fn test_load_invalid_step_times() {
         let seq = Sequence::load_from_path(&sequence_path("invalid_step_times.toml"));
         assert!(seq.is_err());
+        let err_msg = format!("{:#}", seq.unwrap_err()); 
+        assert!(err_msg.contains("Invalid step timestamp"));
     }
 
     #[test]
     fn test_load_invalid_action_times() {
         let seq = Sequence::load_from_path(&sequence_path("invalid_action_times.toml"));
         assert!(seq.is_err());
+        let err_msg = format!("{:#}", seq.unwrap_err()); 
+        assert!(err_msg.contains("Invalid action timestamp"));
     }
 }
