@@ -1,4 +1,4 @@
-##:schema ../../sequences/_schema.json
+#:schema ../../sequences/_schema.json
 
 name = "Test Sequence Invalid: step times"
 
@@ -12,10 +12,14 @@ interpolation_interval = 0.1
 name = "Step1"
 description = "Description of Step1"
 timestamp = -9
-set_params = []
+set_params = [
+    { timestamp = 0, param = "servo1", value = 0 }
+]
 
 [[steps]]
 name = "Step2"
 description = "Description of Step2"
 timestamp = 9
-set_params = []
+set_params = [
+    { timestamp = 0, param = "servo1", value = 0 }
+]

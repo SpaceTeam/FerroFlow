@@ -1,6 +1,7 @@
 ##:schema ../../sequences/_schema.json
 
 name = "Test Sequence Invalid: interpolations interval"
+steps = []
 
 [globals]
 start_time = -2
