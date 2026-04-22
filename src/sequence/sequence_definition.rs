@@ -33,6 +33,10 @@ impl Sequence {
 
     fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
+            self.globals.start_time <= 0.0,
+            "Invalid start time is after timestamp 0",
+        );
+        anyhow::ensure!(
             self.globals.start_time <= self.globals.end_time,
             "Invalid start time is after end time",
         );
