@@ -29,6 +29,14 @@ The repository includes a CI script (`ci-rust.sh`) that runs all quality checks 
 ```
 You can fix formatting or linter issues by adding the -fix suffix to the command. e.g: `./ci-rust.sh clippy-fix`
 
+### Running `fmt` and `clippy` as a pre-commit hook
+
+A pre-commit hook script is available in `.githooks`, which executes the CI script with `fmt` and `clippy` only and without the `fix` option. To setup the hook, configure git to use the `.githooks` directory and make the `pre-commit` file executable.
+```bash
+git config core.hooksPath .githooks
+chmod u+x .githooks/pre-commit
+```
+
 ### Database & Diesel
 
 **Timescale**
