@@ -1,20 +1,20 @@
 //! Contains code for logging telemetry and parameters to postgres.
 
+use anyhow::{Context, Result};
+use diesel::prelude::*;
+use std::collections::HashSet;
 use std::{
     sync::mpsc::{self, RecvTimeoutError},
     thread,
     time::Duration,
 };
 
-use anyhow::{Context, Result};
-use diesel::prelude::*;
-
+pub use self::models::FieldLog;
+use crate::events::EventKind;
 use crate::{
     db::timescale_schema::field_logs,
     events::{self, Event},
 };
-
-pub use self::models::FieldLog;
 
 mod models;
 mod schema;
@@ -28,7 +28,9 @@ pub fn spawn_logging_worker<'a>(
     let mut conn =
         PgConnection::establish(&database_url).context("failed to connect to database")?;
     let (tx, rx) = mpsc::channel::<events::Event>();
-    event_dispatcher.subscribe(tx, "Database logging thread");
+
+    let events = HashSet::from([EventKind::Shutdown, EventKind::NodeFieldUpdated]);
+    event_dispatcher.subscribe(tx, events, "Database logging thread");
 
     scope.spawn(move || {
         // Write to the db in batches for better performance

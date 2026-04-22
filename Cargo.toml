@@ -14,6 +14,20 @@ dashmap = "6.1.0"
 config = "0.15.22"
 serde = { version = "1.0.228", features = ["derive"] }
 
+# Test-only helper binary dependencies (enabled via feature)
+caps = { version = "0.5", optional = true }
+libc = { version = "0.2", optional = true }
+
+[features]
+# Enables the `ferroflow-vcan` helper binary used by integration tests.
+# Keep this disabled for normal builds.
+test-vcan = ["dep:caps", "dep:libc"]
+
+[[bin]]
+name = "ferroflow-vcan"
+path = "src/bin/ferroflow-vcan.rs"
+required-features = ["test-vcan"]
+
 [dev-dependencies]
 diesel_migrations = "2.3"
 testcontainers = { version = "0.27", features = ["blocking"] }

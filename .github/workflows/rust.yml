@@ -18,7 +18,45 @@ jobs:
     - uses: actions/checkout@v4
       with:
         submodules: recursive
+
+    - name: Enable vcan support on runner
+      run: |
+        set -euxo pipefail
+
+        sudo apt-get update
+        sudo apt-get install -y kmod libcap2-bin
+
+        # GitHub's ubuntu runners use an Azure-flavoured kernel.
+        sudo apt-get install -y "linux-modules-extra-$(uname -r)" \
+          || sudo apt-get install -y linux-modules-extra-azure \
+          || true
+
+        # Try to load SocketCAN + vcan.
+        sudo modprobe can || true
+        sudo modprobe can_raw || true
+        sudo modprobe vcan || true
+
+        # Helpful debug output when the kernel simply doesn't provide vcan.
+        if ! lsmod | grep -q '^vcan\b'; then
+          echo "WARNING: vcan kernel module is not available on this runner kernel ($(uname -r))."
+          echo "         vcan-based integration tests will fail unless you use a runner/kernel that provides vcan."
+        fi
+
+    - name: Build & install ferroflow-vcan helper (CAP_NET_ADMIN)
+      run: |
+        set -euxo pipefail
+
+        # Build the helper binary (only available with the `test-vcan` feature).
+        cargo build --release --bin ferroflow-vcan --features test-vcan
+
+        # Grant CAP_NET_ADMIN so integration tests can create/delete vcan interfaces without sudo.
+        sudo setcap cap_net_admin+ep target/release/ferroflow-vcan
+
+        # Put the helper on PATH for the test process (tests invoke it via `Command::new("ferroflow-vcan")`).
+        echo "$GITHUB_WORKSPACE/target/release" >> "$GITHUB_PATH"
+
     - name: Make CI script executable
       run: chmod +x ci-rust.sh
+
     - name: Run CI checks
       run: ./ci-rust.sh all
