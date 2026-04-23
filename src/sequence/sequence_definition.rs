@@ -24,9 +24,6 @@ impl Sequence {
             .try_deserialize()
             .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
 
-        sequence
-            .steps
-            .sort_by(|a, b| a.timestamp.total_cmp(&b.timestamp));
         sequence.validate()?;
         Ok(sequence)
     }
@@ -45,10 +42,12 @@ impl Sequence {
             "Invalid interpolations interval must be greater 0",
         );
 
-        for window in self.steps.windows(2) {
-            let step = &window[0];
-            let next = &window[1];
-
+        // validate each step independently
+        // steps need to:
+        // - be sorted by timestamp
+        // - be in between global start and end time
+        // - have at least 1 action
+        for step in &self.steps {
             anyhow::ensure!(
                 step.timestamp >= self.globals.start_time,
                 "Invalid step timestamp in step '{}', before global start time",
@@ -67,28 +66,26 @@ impl Sequence {
                 step.name,
             );
 
+            // actions need to:
+            // - be at of after the parent step
+            // - before the global end time
+            // conditional holds need to:
+            // - have at least one condition
             for action in &step.actions {
                 match action {
-                    Action::SetParam(fv) => {
+                    Action::SetParam(set_param) => {
                         anyhow::ensure!(
-                            fv.timestamp >= step.timestamp,
+                            set_param.timestamp >= step.timestamp,
                             "Invalid action timestamp in step '{}' action '{}', before step timestamp",
                             step.name,
-                            fv.param,
+                            set_param.param,
                         );
 
                         anyhow::ensure!(
-                            fv.timestamp <= self.globals.end_time,
+                            set_param.timestamp <= self.globals.end_time,
                             "Invalid action timestamp in step '{}' action '{}', after global end time",
                             step.name,
-                            fv.param,
-                        );
-
-                        anyhow::ensure!(
-                            fv.timestamp <= next.timestamp,
-                            "Invalid action timestamp in step '{}' action '{}', after next step timestamp",
-                            step.name,
-                            fv.param,
+                            set_param.param,
                         );
                     }
                     Action::Hold(hold_mode) => {
@@ -100,6 +97,32 @@ impl Sequence {
                             );
                         }
                     }
+                }
+            }
+        }
+
+        // validate steps with the following step
+        // steps need to:
+        // - be in order
+        // - have actions that are before the next step
+        for window in self.steps.windows(2) {
+            let step = &window[0];
+            let next = &window[1];
+
+            anyhow::ensure!(
+                step.timestamp < next.timestamp,
+                "Invalid step '{}', after next step",
+                step.name,
+            );
+
+            for action in &step.actions {
+                if let Action::SetParam(set_param) = action {
+                    anyhow::ensure!(
+                        set_param.timestamp < next.timestamp,
+                        "Invalid action timestamp in step '{}' action '{}', after next step timestamp",
+                        step.name,
+                        set_param.param,
+                    );
                 }
             }
         }
@@ -267,7 +290,7 @@ mod tests {
     fn test_load_invalid_global_times() {
         let seq = Sequence::load_from_path(&sequence_path("invalid_global_times.toml"));
         assert!(seq.is_err());
-        let err_msg = format!("{:#}", seq.unwrap_err()); 
+        let err_msg = format!("{:#}", seq.unwrap_err());
         assert!(err_msg.contains("Invalid start time is after timestamp"));
     }
 
@@ -275,7 +298,7 @@ mod tests {
     fn test_load_invalid_interpolation_interval() {
         let seq = Sequence::load_from_path(&sequence_path("invalid_interpolation_interval.toml"));
         assert!(seq.is_err());
-        let err_msg = format!("{:#}", seq.unwrap_err()); 
+        let err_msg = format!("{:#}", seq.unwrap_err());
         assert!(err_msg.contains("Invalid interpolations interval"));
     }
 
@@ -283,7 +306,7 @@ mod tests {
     fn test_load_invalid_step_times() {
         let seq = Sequence::load_from_path(&sequence_path("invalid_step_times.toml"));
         assert!(seq.is_err());
-        let err_msg = format!("{:#}", seq.unwrap_err()); 
+        let err_msg = format!("{:#}", seq.unwrap_err());
         assert!(err_msg.contains("Invalid step timestamp"));
     }
 
@@ -291,7 +314,7 @@ mod tests {
     fn test_load_invalid_action_times() {
         let seq = Sequence::load_from_path(&sequence_path("invalid_action_times.toml"));
         assert!(seq.is_err());
-        let err_msg = format!("{:#}", seq.unwrap_err()); 
+        let err_msg = format!("{:#}", seq.unwrap_err());
         assert!(err_msg.contains("Invalid action timestamp"));
     }
 }
