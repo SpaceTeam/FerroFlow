@@ -185,6 +185,7 @@ fn build_test_config(can_iface: &str) -> Config {
         can_bus_interfaces: vec![can_iface.to_string()],
         heartbeat_period: 1,
         database_url: "".to_string(),
+        http_listen: None,
     }
 }
 

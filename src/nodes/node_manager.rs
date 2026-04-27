@@ -7,8 +7,9 @@ use dashmap::DashMap;
 use liquidcan::{
     CanMessage, CanMessageId,
     payloads::{
-        CanDataValue, FieldGetResPayload, FieldRegistrationPayload, HeartbeatPayload,
-        NodeInfoResPayload, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
+        CanDataType, CanDataValue, FieldGetResPayload, FieldRegistrationPayload, HeartbeatPayload,
+        NodeInfoResPayload, ParameterSetConfirmationPayload, ParameterSetReqPayload,
+        ParameterSetStatus, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
     },
 };
 
@@ -64,6 +65,9 @@ impl<'a> NodeManager<'a> {
             }
             CanMessage::FieldGetRes { payload } => self.handle_field_get_res(message_id, payload),
             CanMessage::HeartbeatRes { payload } => self.handle_heartbeat_res(message_id, payload),
+            CanMessage::ParameterSetConfirmation { payload } => {
+                self.handle_parameter_set_confirmation(message_id, payload)
+            }
             _ => bail!(
                 "received unsupported CAN message from node {}: {:?}",
                 message_id.sender_id(),
@@ -353,8 +357,265 @@ impl<'a> NodeManager<'a> {
 
         Ok(())
     }
+
+    pub fn handle_parameter_set_confirmation(
+        &self,
+        can_msg_id: CanMessageId,
+        payload: ParameterSetConfirmationPayload,
+    ) -> Result<()> {
+        let timestamp = Utc::now();
+        let node_id = can_msg_id.sender_id();
+
+        if payload.status != ParameterSetStatus::Success {
+            eprintln!(
+                "Parameter set confirmation from node {} for parameter {} reported status {:?}",
+                node_id, payload.parameter_id, payload.status
+            );
+        }
+
+        let node = self.can_nodes.get(&node_id).with_context(|| {
+            format!(
+                "received parameter set confirmation for node {} but it is not registered",
+                node_id
+            )
+        })?;
+
+        let parameter_id = payload.parameter_id;
+        let field_info = node.parameter_fields.get(&parameter_id).with_context(|| {
+            format!(
+                "received parameter set confirmation for node {} parameter {} but no field definition exists",
+                node_id, parameter_id
+            )
+        })?;
+
+        let field_type = field_info.data_type;
+
+        let value = match payload.value {
+            raw @ CanDataValue::Raw(_) => raw.convert_from_raw(field_type).with_context(|| {
+                format!(
+                    "failed to convert parameter set confirmation value for node {} parameter {} from {:?}",
+                    node_id, parameter_id, raw
+                )
+            })?,
+            other => other,
+        };
+
+        node.values.insert(parameter_id, (timestamp, value.clone()));
+
+        let log = FieldLog {
+            timestamp,
+            node_id: node_id as i16,
+            field_id: parameter_id as i16,
+            field_name: field_info.name.clone(),
+            field_value: Self::can_data_value_to_json(value),
+        };
+
+        self.event_dispatcher
+            .dispatch(events::Event::NodeFieldUpdated(log));
+
+        Ok(())
+    }
+
+    /// Resolve a parameter id by its registered name.
+    pub fn resolve_parameter_id_by_name(&self, node_id: u8, parameter_name: &str) -> Result<u8> {
+        let node = self.can_nodes.get(&node_id).with_context(|| {
+            format!(
+                "cannot resolve parameter name for node {} because it is not registered",
+                node_id
+            )
+        })?;
+
+        for (&id, info) in node.parameter_fields.iter() {
+            if info.name == parameter_name {
+                return Ok(id);
+            }
+        }
+
+        bail!(
+            "node {} has no parameter with name '{}'",
+            node_id,
+            parameter_name
+        );
+    }
+
+    /// Queue a LiquidCAN `ParameterSetReq` for the given node.
+    pub fn set_parameter(
+        &self,
+        node_id: u8,
+        parameter_id: u8,
+        value: serde_json::Value,
+    ) -> Result<()> {
+        let node = self.can_nodes.get(&node_id).with_context(|| {
+            format!(
+                "cannot set parameter because node {} is not registered",
+                node_id
+            )
+        })?;
+
+        let field_info = node.parameter_fields.get(&parameter_id).with_context(|| {
+            format!(
+                "cannot set parameter {} on node {} because no parameter definition exists",
+                parameter_id, node_id
+            )
+        })?;
+
+        let can_value =
+            Self::json_to_can_data_value(field_info.data_type, value).with_context(|| {
+                format!(
+                    "failed to convert JSON value for node {} parameter {} ('{}')",
+                    node_id, parameter_id, field_info.name
+                )
+            })?;
+
+        self.event_dispatcher
+            .dispatch(events::Event::SendCanMessage {
+                receiver_node_id: node_id,
+                message: CanMessage::ParameterSetReq {
+                    payload: ParameterSetReqPayload {
+                        parameter_id,
+                        value: can_value,
+                    },
+                },
+            });
+
+        Ok(())
+    }
+
     pub fn get_nodes(&self) -> &DashMap<u8, CanNode> {
         &self.can_nodes
+    }
+
+    fn json_to_can_data_value(
+        data_type: CanDataType,
+        value: serde_json::Value,
+    ) -> Result<CanDataValue> {
+        let parse_u64 = |v: &serde_json::Value| -> Result<u64> {
+            if let Some(n) = v.as_u64() {
+                return Ok(n);
+            }
+            if let Some(n) = v.as_i64() {
+                if n < 0 {
+                    bail!("expected unsigned integer, got {n}");
+                }
+                return Ok(n as u64);
+            }
+            if let Some(s) = v.as_str() {
+                let s = s.trim();
+                if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+                    return Ok(u64::from_str_radix(hex, 16)
+                        .with_context(|| format!("invalid hex integer '{s}'"))?);
+                }
+                return Ok(s
+                    .parse::<u64>()
+                    .with_context(|| format!("invalid integer '{s}'"))?);
+            }
+            bail!("expected integer, got {v}");
+        };
+
+        let parse_i64 = |v: &serde_json::Value| -> Result<i64> {
+            if let Some(n) = v.as_i64() {
+                return Ok(n);
+            }
+            if let Some(n) = v.as_u64() {
+                return Ok(i64::try_from(n).context("integer out of range")?);
+            }
+            if let Some(s) = v.as_str() {
+                let s = s.trim();
+                if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+                    let n = i64::try_from(
+                        u64::from_str_radix(hex, 16)
+                            .with_context(|| format!("invalid hex integer '{s}'"))?,
+                    )
+                    .context("integer out of range")?;
+                    return Ok(n);
+                }
+                return Ok(s
+                    .parse::<i64>()
+                    .with_context(|| format!("invalid integer '{s}'"))?);
+            }
+            bail!("expected integer, got {v}");
+        };
+
+        let parse_f64 = |v: &serde_json::Value| -> Result<f64> {
+            if let Some(n) = v.as_f64() {
+                return Ok(n);
+            }
+            if let Some(s) = v.as_str() {
+                let s = s.trim();
+                return Ok(s
+                    .parse::<f64>()
+                    .with_context(|| format!("invalid float '{s}'"))?);
+            }
+            bail!("expected float, got {v}");
+        };
+
+        let parse_bool = |v: &serde_json::Value| -> Result<bool> {
+            if let Some(b) = v.as_bool() {
+                return Ok(b);
+            }
+            if let Some(n) = v.as_i64() {
+                return Ok(n != 0);
+            }
+            if let Some(n) = v.as_u64() {
+                return Ok(n != 0);
+            }
+            if let Some(s) = v.as_str() {
+                let s = s.trim().to_ascii_lowercase();
+                return match s.as_str() {
+                    "true" | "1" | "yes" | "on" => Ok(true),
+                    "false" | "0" | "no" | "off" => Ok(false),
+                    _ => bail!("invalid boolean '{s}'"),
+                };
+            }
+            bail!("expected boolean, got {v}");
+        };
+
+        match data_type {
+            CanDataType::Float32 => Ok(CanDataValue::Float32(parse_f64(&value)? as f32)),
+            CanDataType::Int32 => {
+                let n = parse_i64(&value)?;
+                if n < i32::MIN as i64 || n > i32::MAX as i64 {
+                    bail!("int32 out of range: {n}");
+                }
+                Ok(CanDataValue::Int32(n as i32))
+            }
+            CanDataType::Int16 => {
+                let n = parse_i64(&value)?;
+                if n < i16::MIN as i64 || n > i16::MAX as i64 {
+                    bail!("int16 out of range: {n}");
+                }
+                Ok(CanDataValue::Int16(n as i16))
+            }
+            CanDataType::Int8 => {
+                let n = parse_i64(&value)?;
+                if n < i8::MIN as i64 || n > i8::MAX as i64 {
+                    bail!("int8 out of range: {n}");
+                }
+                Ok(CanDataValue::Int8(n as i8))
+            }
+            CanDataType::UInt32 => {
+                let n = parse_u64(&value)?;
+                if n > u32::MAX as u64 {
+                    bail!("uint32 out of range: {n}");
+                }
+                Ok(CanDataValue::UInt32(n as u32))
+            }
+            CanDataType::UInt16 => {
+                let n = parse_u64(&value)?;
+                if n > u16::MAX as u64 {
+                    bail!("uint16 out of range: {n}");
+                }
+                Ok(CanDataValue::UInt16(n as u16))
+            }
+            CanDataType::UInt8 => {
+                let n = parse_u64(&value)?;
+                if n > u8::MAX as u64 {
+                    bail!("uint8 out of range: {n}");
+                }
+                Ok(CanDataValue::UInt8(n as u8))
+            }
+            CanDataType::Boolean => Ok(CanDataValue::Boolean(parse_bool(&value)?)),
+        }
     }
 
     fn can_data_value_to_json(value: CanDataValue) -> serde_json::Value {

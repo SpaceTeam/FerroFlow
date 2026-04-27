@@ -6,7 +6,7 @@ use socketcan::{
     CanAnyFrame, CanFdFrame, CanFdSocket, EmbeddedFrame, Frame, Socket, SocketOptions, StandardId,
 };
 use std::{
-    sync::{Arc, mpsc},
+    sync::{Arc, OnceLock, mpsc},
     thread::Scope,
     time::Duration,
 };
@@ -60,6 +60,78 @@ pub fn spawn_can_threads<'a>(
     scope.spawn(move || can_send_thread(sockets, event_dispatcher));
 
     Ok(())
+}
+
+static CAN_RX_LOG_ENABLED: OnceLock<bool> = OnceLock::new();
+
+fn can_rx_log_enabled() -> bool {
+    *CAN_RX_LOG_ENABLED.get_or_init(|| {
+        std::env::var("FERROFLOW_CAN_LOG")
+            .map(|v| {
+                let v = v.trim().to_ascii_lowercase();
+                !(v.is_empty() || v == "0" || v == "false" || v == "off" || v == "no")
+            })
+            .unwrap_or(false)
+    })
+}
+
+fn bytes_to_hex(data: &[u8]) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    for (i, b) in data.iter().enumerate() {
+        if i != 0 {
+            out.push(' ');
+        }
+        let _ = write!(&mut out, "{:02X}", b);
+    }
+    out
+}
+
+fn bytes_to_bin(data: &[u8]) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    for (i, b) in data.iter().enumerate() {
+        if i != 0 {
+            out.push(' ');
+        }
+        let _ = write!(&mut out, "{:08b}", b);
+    }
+    out
+}
+
+fn log_can_rx(
+    interface: &str,
+    raw_id: u16,
+    message_id: CanMessageId,
+    data: &[u8],
+    parsed: Option<&CanMessage>,
+    action: &str,
+) {
+    if !can_rx_log_enabled() {
+        return;
+    }
+
+    let data_hex = bytes_to_hex(data);
+    let data_bin = bytes_to_bin(data);
+
+    match parsed {
+        Some(msg) => {
+            println!(
+                "CAN RX ({action}) iface={interface} can_id=0x{raw_id:03X} can_id_bin={raw_id:011b} sender={} receiver={} msg={msg:?} data_hex=[{data_hex}] data_bin=[{data_bin}]",
+                message_id.sender_id(),
+                message_id.receiver_id(),
+            );
+        }
+        None => {
+            println!(
+                "CAN RX ({action}) iface={interface} can_id=0x{raw_id:03X} can_id_bin={raw_id:011b} sender={} receiver={} data_hex=[{data_hex}] data_bin=[{data_bin}]",
+                message_id.sender_id(),
+                message_id.receiver_id(),
+            );
+        }
+    }
 }
 
 fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &EventDispatcher) {
@@ -183,21 +255,35 @@ fn receive_frame(
         );
     }
 
+    let data = frame.data().to_vec();
+
     // TODO: Currently broadcast messages are not relayed. We should check if any client nodes ever need to broadcast messages and if so, what other nodes they need to reach.
     if message_id.receiver_id() == NODE_ID_BROADCAST || message_id.receiver_id() == NODE_ID_SERVER {
-        let message = CanMessage::try_from(frame).with_context(|| {
+        let message = CanMessage::try_from(&frame).with_context(|| {
             format!(
-                "failed to parse CAN frame into CanMessage for node {}. Frame content: {:02x?}",
+                "failed to parse CAN frame into CanMessage for node {}. Frame content hex=[{}] bin=[{}]",
                 message_id.sender_id(),
-                frame.data()
+                bytes_to_hex(&data),
+                bytes_to_bin(&data)
             )
         })?;
+
+        log_can_rx(
+            interface,
+            raw_id,
+            message_id,
+            &data,
+            Some(&message),
+            "local",
+        );
 
         event_dispatcher.dispatch(Event::CanMessageReceived {
             id: message_id,
             message,
         });
     } else {
+        log_can_rx(interface, raw_id, message_id, &data, None, "relay");
+
         // broadcast this to all other interfaces.
         event_dispatcher.dispatch(Event::RelayCanMessage {
             from_interface: interface.to_string(),

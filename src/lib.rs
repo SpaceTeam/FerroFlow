@@ -35,6 +35,16 @@ pub fn run_with_dependencies(
         if !config.database_url.is_empty() {
             db::spawn_logging_worker(config.database_url.to_string(), event_dispatcher, scope)?;
         }
+
+        if let Some(listen) = config
+            .http_listen
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        {
+            socket::http::spawn_http_server_thread(node_manager, event_dispatcher, listen, scope);
+        }
+
         println!("Starting node registration");
 
         nodes::spawn_can_msg_handler_thread(node_manager, event_dispatcher, scope);
