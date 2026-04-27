@@ -2,7 +2,6 @@
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
-use std::collections::HashSet;
 use std::{
     sync::mpsc::{self, RecvTimeoutError},
     thread,
@@ -29,7 +28,7 @@ pub fn spawn_logging_worker<'a>(
         PgConnection::establish(&database_url).context("failed to connect to database")?;
     let (tx, rx) = mpsc::channel::<events::Event>();
 
-    let events = HashSet::from([EventKind::Shutdown, EventKind::NodeFieldUpdated]);
+    let events = vec![EventKind::Shutdown, EventKind::NodeFieldUpdated];
     event_dispatcher.subscribe(tx, events, "Database logging thread");
 
     scope.spawn(move || {

@@ -4,7 +4,6 @@ mod can_node;
 mod node_manager;
 
 pub use node_manager::NodeManager;
-use std::collections::HashSet;
 use std::{
     sync::mpsc::{self, RecvTimeoutError},
     time::{Duration, Instant},
@@ -19,7 +18,7 @@ pub fn spawn_can_msg_handler_thread<'a>(
     scope: &'a std::thread::Scope<'a, '_>,
 ) {
     let (tx, rx) = mpsc::channel::<events::Event>();
-    let events = HashSet::from([EventKind::Shutdown, EventKind::CanMessageReceived]);
+    let events = vec![EventKind::Shutdown, EventKind::CanMessageReceived];
     event_dispatcher.subscribe(tx, events, "Can message handler thread");
     scope.spawn(move || {
         while let Ok(event) = rx.recv() {
@@ -43,7 +42,7 @@ pub fn spawn_heartbeat_thread<'a>(
     scope: &'a std::thread::Scope<'a, '_>,
 ) {
     let (tx, rx) = mpsc::channel::<events::Event>();
-    let events = HashSet::from([EventKind::Shutdown]);
+    let events = vec![EventKind::Shutdown];
 
     event_dispatcher.subscribe(tx, events, "Heartbeat thread");
 

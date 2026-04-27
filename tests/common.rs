@@ -26,18 +26,10 @@ impl Drop for VcanGuard {
             return;
         }
 
-        // Prefer the setcap-based helper if available in PATH.
-        // Fallback to the sudo-based shell script.
-        let helper_ok = Command::new("ferroflow-vcan")
+        Command::new("ferroflow-vcan")
             .args(["down", &self.iface])
             .status()
-            .is_ok_and(|s| s.success());
-
-        if !helper_ok {
-            let _ = Command::new("./scripts/teardown-vcan.sh")
-                .arg(&self.iface)
-                .status();
-        }
+            .expect("failed to execute ferroflow-vcan down");
     }
 }
 
@@ -61,24 +53,10 @@ pub fn ensure_vcan(iface: &str) -> VcanGuard {
     } else {
         // Prefer the setcap-based helper if available in PATH.
         // Fallback to the sudo-based shell script.
-        let helper_ok = Command::new("ferroflow-vcan")
+        Command::new("ferroflow-vcan")
             .args(["up", iface])
             .status()
-            .is_ok_and(|s| s.success());
-
-        if !helper_ok {
-            let status = Command::new("./scripts/setup-vcan.sh")
-                .arg(iface)
-                .status()
-                .expect("failed to execute ./scripts/setup-vcan.sh");
-
-            assert!(
-                status.success(),
-                "failed to setup vcan interface '{iface}'.\n\
-                 Try running: ./scripts/setup-vcan.sh {iface}\n\
-                 (may require sudo / CAP_NET_ADMIN)"
-            );
-        }
+            .expect("failed to execute ferroflow-vcan up");
 
         // Verify it exists now.
         assert!(

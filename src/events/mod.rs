@@ -1,6 +1,5 @@
 //! Events that are dispatched by one module and listened to by another.
 
-use std::collections::HashSet;
 use std::hash::Hash;
 use std::sync::{RwLock, mpsc::Sender};
 
@@ -50,7 +49,7 @@ impl From<Event> for EventKind {
 struct EventListener {
     debug_name: String,
     sender: Sender<Event>,
-    subscribed_events: HashSet<EventKind>,
+    subscribed_events: Vec<EventKind>,
 }
 
 pub struct EventDispatcher {
@@ -73,7 +72,7 @@ impl EventDispatcher {
     pub fn subscribe(
         &self,
         listener: Sender<Event>,
-        subscribed_events: HashSet<EventKind>,
+        subscribed_events: Vec<EventKind>,
         debug_name: impl Into<String>,
     ) {
         self.listeners.write().unwrap().push(EventListener {
@@ -105,7 +104,6 @@ impl EventDispatcher {
 #[cfg(test)]
 mod tests {
     use super::{Event, EventDispatcher, EventKind};
-    use std::collections::HashSet;
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -115,11 +113,9 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
         let (can_tx, can_rx) = mpsc::channel();
 
-        let mut shutdown_subscription = HashSet::new();
-        shutdown_subscription.insert(EventKind::Shutdown);
+        let shutdown_subscription = vec![EventKind::Shutdown];
 
-        let mut can_subscription = HashSet::new();
-        can_subscription.insert(EventKind::CanMessageReceived);
+        let can_subscription = vec![EventKind::CanMessageReceived];
 
         dispatcher.subscribe(shutdown_tx, shutdown_subscription, "shutdown-listener");
         dispatcher.subscribe(can_tx, can_subscription, "can-listener");
@@ -144,11 +140,9 @@ mod tests {
         let (listener_one_tx, listener_one_rx) = mpsc::channel();
         let (listener_two_tx, listener_two_rx) = mpsc::channel();
 
-        let mut shutdown_subscription = HashSet::new();
-        shutdown_subscription.insert(EventKind::Shutdown);
+        let shutdown_subscription = vec![EventKind::Shutdown];
 
-        let mut shutdown_subscription_two = HashSet::new();
-        shutdown_subscription_two.insert(EventKind::Shutdown);
+        let shutdown_subscription_two = vec![EventKind::Shutdown];
 
         dispatcher.subscribe(
             listener_one_tx,

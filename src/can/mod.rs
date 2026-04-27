@@ -5,7 +5,6 @@ use liquidcan::{CanMessage, CanMessageId, NODE_ID_BROADCAST, NODE_ID_INVALID, NO
 use socketcan::{
     CanAnyFrame, CanFdFrame, CanFdSocket, EmbeddedFrame, Frame, Socket, SocketOptions, StandardId,
 };
-use std::collections::HashSet;
 use std::{
     sync::{Arc, mpsc},
     thread::Scope,
@@ -47,7 +46,7 @@ pub fn spawn_can_threads<'a>(
 
         // Subscribe each recv thread so it can terminate on Event::Shutdown.
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<Event>();
-        let events = HashSet::from([EventKind::Shutdown]);
+        let events = vec![EventKind::Shutdown];
 
         event_dispatcher.subscribe(
             shutdown_tx,
@@ -65,11 +64,11 @@ pub fn spawn_can_threads<'a>(
 
 fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &EventDispatcher) {
     let (sender, receiver) = mpsc::channel::<events::Event>();
-    let events = HashSet::from([
+    let events = vec![
         EventKind::SendCanMessage,
         EventKind::RelayCanMessage,
         EventKind::Shutdown,
-    ]);
+    ];
     event_dispatcher.subscribe(sender, events, "CAN send thread");
 
     while let Ok(event) = receiver.recv() {
