@@ -2,6 +2,8 @@
 
 mod sequence_definition;
 mod sequence_runner;
+mod sequence_validation;
+
 
 use crate::{
     events,
