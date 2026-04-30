@@ -1,0 +1,16 @@
+#:schema ../../sequences/_schema.json
+
+name = "Test Abort Sequence Valid"
+
+[globals]
+start_time = 0
+end_time = 1
+interpolations = {}
+interpolation_interval = 0.1
+
+[[steps]]
+name = "Step1"
+timestamp = 0
+set_params = [
+  { timestamp = 0.0, param = "abort", value = 1 },
+]

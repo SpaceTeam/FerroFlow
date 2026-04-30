@@ -1,12 +1,12 @@
 #![allow(unused)]
 
 use anyhow::{Context, Result};
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, time::Duration};
 
 use config::{Config, File};
 use serde::{Deserialize, Deserializer, de};
 
-type TimestampSec = f64;
+pub type TimestampSec = f64;
 
 #[derive(Debug, Deserialize)]
 pub struct Sequence {
@@ -20,7 +20,7 @@ impl Sequence {
     pub fn load_from_path(path: &Path) -> Result<Self> {
         let config = Config::builder().add_source(File::from(path)).build()?;
 
-        let mut sequence: Self = config
+        let sequence: Self = config
             .try_deserialize()
             .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
 
@@ -33,9 +33,24 @@ impl Sequence {
 pub struct Globals {
     pub start_time: TimestampSec,
     pub end_time: TimestampSec,
-    pub interpolation_interval: TimestampSec,
+    #[serde(deserialize_with = "duration_from_f64")]
+    pub interpolation_interval: Duration,
     #[serde(default)]
     pub interpolations: HashMap<String, InterpolationMode>,
+}
+
+fn duration_from_f64<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let secs = f64::deserialize(deserializer)?;
+    if !secs.is_finite() {
+        return Err(serde::de::Error::custom("duration cannot infinite or NaN"));
+    }
+    if secs.is_sign_negative() {
+        return Err(serde::de::Error::custom("duration cannot be negative"));
+    }
+    Ok(Duration::from_secs_f64(secs))
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
@@ -51,56 +66,70 @@ pub struct Step {
     pub name: String,
     pub description: Option<String>,
     pub timestamp: TimestampSec,
-    pub actions: Vec<Action>,
+    pub actions: Vec<TimedAction>,
 }
 
 impl<'de> Deserialize<'de> for Step {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
+        struct RawParamState {
+            #[serde(rename = "timestamp")]
+            relative_timestamp: TimestampSec,
+            param: String,
+            value: f64,
+        }
+        #[derive(Deserialize)]
         struct RawStep {
             name: String,
-            #[serde(default)]
             description: Option<String>,
             timestamp: TimestampSec,
-            #[serde(default)]
-            set_params: Vec<ParamValue>,
+            set_params: Option<Vec<RawParamState>>,
             hold: Option<HoldMode>,
         }
 
-        let raw = RawStep::deserialize(d)?;
-        let actions = match (raw.hold, raw.set_params.is_empty()) {
-            (Some(mode), true) => vec![Action::Hold(mode)],
-            (Some(_), false) => {
-                return Err(de::Error::custom(
-                    "step can either have `hold` or `set_Params`",
-                ));
-            }
-            (None, _) => raw
-                .set_params
+        let raw_step = RawStep::deserialize(d)?;
+        let actions = match (raw_step.hold, raw_step.set_params) {
+            (Some(hold), None) => vec![TimedAction {
+                timestamp: raw_step.timestamp,
+                action: Action::Hold(hold),
+            }],
+            (None, Some(set_param)) => set_param
                 .into_iter()
-                .map(|fv| {
-                    Action::SetParam(ParamValue {
-                        timestamp: raw.timestamp + fv.timestamp,
-                        param: fv.param,
-                        value: fv.value,
-                    })
+                .map(|param_state| TimedAction {
+                    // offset relative timestamps to global timestamps
+                    timestamp: raw_step.timestamp + param_state.relative_timestamp,
+                    action: Action::SetParam(ParamState {
+                        param: param_state.param,
+                        value: param_state.value,
+                    }),
                 })
                 .collect(),
+            _ => {
+                return Err(de::Error::custom(
+                    "step must have exactly `hold` or `set_params`",
+                ));
+            }
         };
 
         Ok(Step {
-            name: raw.name,
-            description: raw.description,
-            timestamp: raw.timestamp,
+            name: raw_step.name,
+            description: raw_step.description,
+            timestamp: raw_step.timestamp,
             actions,
         })
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
+pub struct TimedAction {
+    pub timestamp: TimestampSec,
+    pub action: Action,
+}
+
+#[derive(Debug)]
 pub enum Action {
     Hold(HoldMode),
-    SetParam(ParamValue),
+    SetParam(ParamState),
 }
 
 #[derive(Debug)]
@@ -127,15 +156,8 @@ impl<'de> Deserialize<'de> for HoldMode {
     }
 }
 
-#[derive(Debug)]
-pub struct ScheduledAction {
-    pub timestamp: TimestampSec,
-    pub action: Action,
-}
-
 #[derive(Debug, Deserialize, Clone)]
-pub struct ParamValue {
-    pub timestamp: TimestampSec,
+pub struct ParamState {
     pub param: String,
     pub value: f64,
 }
@@ -150,7 +172,7 @@ pub struct HoldCondition {
 impl HoldCondition {
     pub fn evaluate(&self) -> bool {
         // TODO: evaluate condition if it's true based on the actual field values
-        todo!()
+        todo!("evaluate condition if it's true based on the actual field values")
     }
 }
 
@@ -197,7 +219,7 @@ mod tests {
         let seq = Sequence::load_from_path(&sequence_path("invalid_interpolation_interval.toml"));
         assert!(seq.is_err());
         let err_msg = format!("{:#}", seq.unwrap_err());
-        assert!(err_msg.contains("Invalid interpolations interval"));
+        assert!(err_msg.contains("duration cannot be negative"));
     }
 
     #[test]
