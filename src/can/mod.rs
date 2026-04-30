@@ -57,12 +57,6 @@ pub fn spawn_can_threads<'a>(
         scope.spawn(move || can_recv_thread(interface, socket, event_dispatcher, shutdown_rx));
     }
 
-    scope.spawn(move || can_send_thread(sockets, event_dispatcher));
-
-    Ok(())
-}
-
-fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &EventDispatcher) {
     let (sender, receiver) = mpsc::channel::<events::Event>();
     let events = vec![
         EventKind::SendCanMessage,
@@ -71,7 +65,16 @@ fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &Ev
     ];
     event_dispatcher.subscribe(sender, events, "CAN send thread");
 
-    while let Ok(event) = receiver.recv() {
+    scope.spawn(move || can_send_thread(sockets, receiver));
+
+    Ok(())
+}
+
+fn can_send_thread(
+    sockets: Vec<(&str, Arc<CanFdSocket>)>,
+    event_receiver: mpsc::Receiver<events::Event>,
+) {
+    while let Ok(event) = event_receiver.recv() {
         match event {
             Event::Shutdown => break,
             Event::SendCanMessage {
