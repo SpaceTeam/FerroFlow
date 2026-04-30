@@ -17,4 +17,5 @@ config = "0.15.22"
 
 [dev-dependencies]
 diesel_migrations = "2.3"
+ntest = "0.9.5"
 testcontainers = { version = "0.27", features = ["blocking"] }
