@@ -1,88 +1,77 @@
 //! Code for managing and running sequences.
 
-#![allow(unused)]
+mod sequence_builder;
+mod sequence_definition;
+mod sequence_runner;
+mod sequence_validation;
 
-use std::{
-    sync::mpsc,
-    thread,
-    time::{Duration, Instant},
+use std::path::Path;
+
+use crate::{
+    events,
+    sequence::{
+        sequence_definition::Sequence,
+        sequence_runner::{SequenceCmd, SequenceRunner},
+    },
 };
 
-pub struct Sequence {
-    name: String,
-    steps: Vec<SequenceStep>,
-}
+pub fn spawn_sequence_runner_thread<'scope>(
+    event_dispatcher: &'scope events::EventDispatcher,
+    scope: &'scope std::thread::Scope<'scope, '_>,
+) {
+    scope.spawn(move || {
+        let (tx, rx) = std::sync::mpsc::channel::<events::Event>();
+        event_dispatcher.subscribe(tx, "Sequence Runner thread");
+        let mut sequence_runner = SequenceRunner::new(event_dispatcher, scope);
 
-struct SequenceStep {
-    description: String,
-    delay_from_start_ms: u64,
-    action: (), // TODO: how are steps defined?
-}
+        while let Ok(event) = rx.recv() {
+            match event {
+                events::Event::Shutdown => {
+                    sequence_runner.control_sequence(SequenceCmd::Shutdown);
+                    break;
+                }
+                events::Event::StartSequence {
+                    seq_name,
+                    abort_seq_name,
+                } => {
+                    // TODO: replace with loading sequences from the frontend
+                    let seq_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("sequences");
+                    let seq = Sequence::load_from_path(&seq_dir.join(&seq_name));
+                    let abort_seq = Sequence::load_from_path(&seq_dir.join(&abort_seq_name));
 
-pub struct SequenceHandle {
-    cancel_tx: mpsc::Sender<()>,
-    thread_handle: thread::JoinHandle<()>,
-}
+                    let seq = match seq {
+                        Ok(seq) => seq,
+                        Err(err) => {
+                            eprintln!("Error while loading sequence '{seq_name}': {err:#}");
+                            continue;
+                        }
+                    };
+                    let abort_seq = match abort_seq {
+                        Ok(abort_seq) => abort_seq,
+                        Err(err) => {
+                            eprintln!(
+                                "Error while loading abort sequence '{abort_seq_name}': {err:#}"
+                            );
+                            continue;
+                        }
+                    };
 
-impl SequenceHandle {
-    /// Signals the sequence to stop executing further steps.
-    pub fn cancel(self) {
-        let _ = self.cancel_tx.send(());
-    }
-
-    /// Blocks until the sequence finishes (or is cancelled).
-    pub fn wait(self) -> thread::Result<()> {
-        self.thread_handle.join()
-    }
-}
-
-pub fn run_sequence(mut seq: Sequence) -> SequenceHandle {
-    // Create a channel for our interrupt signal
-    let (cancel_tx, cancel_rx) = mpsc::channel();
-
-    // Sort steps.
-    // TODO: We could probably require that they are already sorted at this point.
-    seq.steps.sort_by_key(|s| s.delay_from_start_ms);
-
-    let thread_handle = thread::spawn(move || {
-        println!("Starting sequence: {}", seq.name);
-
-        let start_time = Instant::now();
-
-        for step in seq.steps {
-            // Calculate the absolute target time for this specific step
-            let target_time = start_time + Duration::from_millis(step.delay_from_start_ms);
-            let now = Instant::now();
-
-            // If the target time is in the future, we need to wait
-            if target_time > now {
-                let wait_duration = target_time - now;
-
-                // recv_timeout blocks until a message is received OR the timeout is reached.
-                match cancel_rx.recv_timeout(wait_duration) {
-                    Ok(_) => {
-                        println!("Sequence '{}' interrupted! Aborting.", seq.name);
-                        return;
-                    }
-                    Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        // The caller dropped the handle without explicitly calling cancel().
-                        println!("Sequence handle dropped. Aborting '{}'.", seq.name);
-                        return;
-                    }
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        // Timeout reached without interruption. Run the step.
+                    let result = sequence_runner.run_sequence(seq, abort_seq);
+                    if let Err(err) = result {
+                        eprintln!("Error while running sequence: {err:#}");
                     }
                 }
-            }
-
-            println!("Executing step: {}", step.description);
+                events::Event::PauseSequence => {
+                    sequence_runner.control_sequence(SequenceCmd::Pause)
+                }
+                events::Event::ResumeSequence => {
+                    sequence_runner.control_sequence(SequenceCmd::Resume)
+                }
+                events::Event::AbortSequence => {
+                    sequence_runner.control_sequence(SequenceCmd::Abort)
+                }
+                _ => continue,
+            };
         }
-
-        println!("Sequence '{}' completed successfully.", seq.name);
     });
-
-    SequenceHandle {
-        cancel_tx,
-        thread_handle,
-    }
 }

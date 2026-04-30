@@ -1,0 +1,14 @@
+#:schema ../../sequences/_schema.json
+
+name = "Test Sequence Valid"
+
+[globals]
+start_time = 0
+end_time = 2
+interpolations = {}
+interpolation_interval = 0.1
+
+[[steps]]
+name = "Hold1"
+timestamp = 1.0
+hold = "always"

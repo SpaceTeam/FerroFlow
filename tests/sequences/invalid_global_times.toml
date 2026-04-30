@@ -1,0 +1,10 @@
+#:schema ../../sequences/_schema.json
+
+name = "Test Sequence Invalid: global times"
+steps = []
+
+[globals]
+start_time = 5
+end_time = 2
+interpolations = {}
+interpolation_interval = 0.01

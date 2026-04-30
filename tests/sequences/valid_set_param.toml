@@ -1,0 +1,18 @@
+#:schema ../../sequences/_schema.json
+
+name = "Test Sequence Valid"
+
+[globals]
+start_time = 0
+end_time = 2
+interpolations = {}
+interpolation_interval = 0.1
+
+[[steps]]
+name = "Step1"
+description = "Description of Step1"
+timestamp = 1.0
+set_params = [
+  { timestamp = 0.0, param = "servo1", value = 12 },
+  { timestamp = 0.5, param = "valve1", value = 12 },
+]

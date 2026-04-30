@@ -22,6 +22,13 @@ pub enum Event {
         from_interface: String,
         frame: CanAnyFrame,
     },
+    StartSequence {
+        seq_name: String,
+        abort_seq_name: String,
+    },
+    PauseSequence,
+    ResumeSequence,
+    AbortSequence,
 }
 
 struct EventListener {

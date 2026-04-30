@@ -1,0 +1,187 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "$defs": {
+        "setParam": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "timestamp",
+                "param",
+                "value"
+            ],
+            "properties": {
+                "timestamp": {
+                    "type": "number"
+                },
+                "param": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        },
+        "holdcondition": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "field",
+                "is",
+                "value"
+            ],
+            "properties": {
+                "field": {
+                    "type": "string"
+                },
+                "is": {
+                    "enum": [
+                        "equal",
+                        "not_eq",
+                        "less",
+                        "less_eq",
+                        "greater",
+                        "greater_eq"
+                    ]
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        }
+    },
+    "title": "FerroFlow-Sequence",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "name",
+        "globals",
+        "steps"
+    ],
+    "properties": {
+        "$schema": {
+            "type": "string"
+        },
+        "name": {
+            "type": "string"
+        },
+        "globals": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "start_time",
+                "end_time",
+                "interpolations",
+                "interpolation_interval"
+            ],
+            "properties": {
+                "start_time": {
+                    "type": "number"
+                },
+                "end_time": {
+                    "type": "number"
+                },
+                "interpolation_interval": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                },
+                "interpolations": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^.+$": {
+                            "type": "string",
+                            "enum": [
+                                "linear",
+                                "none"
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "steps": {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                            "name",
+                            "timestamp",
+                            "hold"
+                        ],
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "timestamp": {
+                                "type": "number"
+                            },
+                            "hold": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "$ref": "#/$defs/holdcondition"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                            "name",
+                            "timestamp",
+                            "hold"
+                        ],
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "timestamp": {
+                                "type": "number"
+                            },
+                            "hold": {
+                                "type": "string",
+                                "const": "always"
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                            "name",
+                            "timestamp",
+                            "set_params"
+                        ],
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "timestamp": {
+                                "type": "number"
+                            },
+                            "set_params": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "$ref": "#/$defs/setParam"
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    }
+}
