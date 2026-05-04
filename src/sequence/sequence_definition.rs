@@ -8,7 +8,7 @@ use serde::{Deserialize, Deserializer, de};
 
 pub type TimestampSec = f64;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Sequence {
     pub name: String,
     pub globals: Globals,
@@ -29,7 +29,7 @@ impl Sequence {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Globals {
     pub start_time: TimestampSec,
     pub end_time: TimestampSec,
@@ -61,7 +61,7 @@ pub enum InterpolationMode {
     Linear,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Step {
     pub name: String,
     pub description: Option<String>,
@@ -120,19 +120,19 @@ impl<'de> Deserialize<'de> for Step {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TimedAction {
     pub timestamp: TimestampSec,
     pub action: Action,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Action {
     Hold(HoldMode),
     SetParam(ParamState),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum HoldMode {
     Always,
     Conditional(Vec<HoldCondition>),
@@ -162,7 +162,7 @@ pub struct ParamState {
     pub value: f64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct HoldCondition {
     field: String,
     is: FieldComparison,
@@ -176,7 +176,7 @@ impl HoldCondition {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum FieldComparison {
     Equal,

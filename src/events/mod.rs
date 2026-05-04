@@ -2,6 +2,7 @@
 
 use std::sync::{RwLock, mpsc::Sender};
 
+use crate::sequence::Sequence;
 use liquidcan::{CanMessage, CanMessageId};
 use socketcan::CanAnyFrame;
 
@@ -23,8 +24,8 @@ pub enum Event {
         frame: CanAnyFrame,
     },
     StartSequence {
-        seq_name: String,
-        abort_seq_name: String,
+        seq: Sequence,
+        abort_seq: Sequence,
     },
     PauseSequence,
     ResumeSequence,
