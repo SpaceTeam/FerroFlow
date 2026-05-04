@@ -39,12 +39,13 @@ pub fn flatten_and_interpolate(seq: Sequence) -> Vec<TimedAction> {
             timestamp: timed_action.timestamp,
             value: param_state.value,
         };
-        if let Some(last_param_value) = last_param_states.remove(&param_state.param) {
-            let mut interpolated = interpolate_linear(
+        if let Some(last_param_value) = last_param_states.remove(&param_state.param)
+            && let Some(mut interpolated) = interpolate_linear(
                 last_param_value,
                 new_param_value,
                 seq.globals.interpolation_interval,
-            );
+            )
+        {
             // Remove the first and last element since they are already contained in the sequence definition
             interpolated.pop_front();
             interpolated.pop_back();
@@ -73,16 +74,16 @@ fn interpolate_linear(
     from: TimedValue,
     to: TimedValue,
     interval: Duration,
-) -> VecDeque<TimedValue> {
+) -> Option<VecDeque<TimedValue>> {
     if from.value == to.value {
-        return VecDeque::new();
+        return None;
     }
 
     let interval = interval.as_secs_f64();
     let timespan = to.timestamp - from.timestamp;
 
     if interval > timespan / 2. {
-        return VecDeque::new();
+        return None;
     }
 
     let mut interpolated_values = VecDeque::new();
@@ -98,7 +99,7 @@ fn interpolate_linear(
         });
     }
 
-    interpolated_values
+    Some(interpolated_values)
 }
 
 #[cfg(test)]
@@ -121,6 +122,8 @@ mod tests {
         let timestamps = [0., 2., 4., 6., 8., 10.];
         let values = [0., 20., 40., 60., 80., 100.];
 
+        assert!(results.is_some());
+        let results = results.unwrap();
         assert_eq!(results.len(), 6);
 
         for (i, result) in results.iter().enumerate() {
@@ -142,7 +145,7 @@ mod tests {
         let interval = Duration::from_secs(2);
         let results = interpolate_linear(from, to, interval);
         assert!(
-            results.is_empty(),
+            results.is_none(),
             "Should return empty vec because values are identical"
         );
     }
@@ -160,7 +163,7 @@ mod tests {
         let interval = Duration::from_secs(7);
         let results = interpolate_linear(from, to, interval);
         assert!(
-            results.is_empty(),
+            results.is_none(),
             "Should return empty vec because interpolation interval is too large"
         );
     }
