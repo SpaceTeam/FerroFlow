@@ -1,0 +1,41 @@
+id = "example1"
+description = "This is an example mapping file."
+
+[[mapping]]
+raw.node = "node1"
+raw.field = "field1"
+name = "Example Mapping 1"
+type = "telemetry"
+value.unit = "mAh"
+value.slope = 0.5
+value.offset = 1.0
+
+[[mapping.logical]]
+range = { min = 100 }
+value = "High"
+color = "#ff0000"
+
+[[mapping.logical]]
+range = { min = 50, max = 100 }
+value = "Normal"
+
+[[mapping.logical]]
+range = { max = 50 }
+value = "Low"
+
+
+# alternatively
+
+[[mapping]]
+name = "Example Mapping 2"
+type = "parameter"
+
+raw = { node = "node1", field = "field2" }
+
+value = { slope = 0.5, offset = 1.0, unit = "mAh" }
+
+logical = [
+    { range = { min = 100 }, value = "High", color = "#ff0000" },
+    { range = { min = 50, max = 100 }, value = "Normal" },
+    { range = { max = 50 }, value = "Low" },
+]

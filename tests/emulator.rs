@@ -3,6 +3,7 @@ mod common;
 use crate::common::ShutdownGuard;
 use chrono::{DateTime, Utc};
 use ferro_flow::config::Config;
+use ferro_flow::nodes::mapping::NodeMapping;
 use ferro_flow::{events, nodes, run_with_dependencies};
 use liquidcan::payloads::CanDataType;
 use std::{io::Write, time::Instant};
@@ -17,7 +18,7 @@ fn test_node_registration() {
     let emulator_config = ecuemulator_test_config_toml(&vcan_iface);
 
     let event_dispatcher = events::EventDispatcher::new();
-    let node_manager = nodes::NodeManager::new(&event_dispatcher);
+    let node_manager = nodes::NodeManager::new(&event_dispatcher, NodeMapping::default());
     let config = build_test_config(&vcan_iface);
 
     std::thread::scope(|s| {
@@ -109,7 +110,7 @@ fn test_telemetry_group_updates() {
     let emulator_config = ecuemulator_test_config_toml(&vcan_iface);
 
     let event_dispatcher = events::EventDispatcher::new();
-    let node_manager = nodes::NodeManager::new(&event_dispatcher);
+    let node_manager = nodes::NodeManager::new(&event_dispatcher, NodeMapping::default());
     let config = build_test_config(&vcan_iface);
     println!("Starting application with test config: {:?}", config);
 
@@ -185,6 +186,7 @@ fn build_test_config(can_iface: &str) -> Config {
         can_bus_interfaces: vec![can_iface.to_string()],
         heartbeat_period: 1,
         database_url: "".to_string(),
+        mapping_path: "".to_string(),
     }
 }
 

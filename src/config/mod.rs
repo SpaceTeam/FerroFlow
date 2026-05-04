@@ -9,6 +9,7 @@ pub struct Config {
     pub can_bus_interfaces: Vec<String>,
     pub heartbeat_period: u64,
     pub database_url: String,
+    pub mapping_path: String,
 }
 
 pub fn load_config(path: &str) -> Result<Config> {

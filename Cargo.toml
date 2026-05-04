@@ -17,6 +17,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 # Test-only helper binary dependencies (enabled via feature)
 caps = { version = "0.5", optional = true }
 libc = { version = "0.2", optional = true }
+toml = "1.1.2"
 
 [features]
 # Enables the `ferroflow-vcan` helper binary used by integration tests.
