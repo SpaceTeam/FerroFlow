@@ -45,7 +45,7 @@ where
 {
     let secs = f64::deserialize(deserializer)?;
     if !secs.is_finite() {
-        return Err(serde::de::Error::custom("duration cannot infinite or NaN"));
+        return Err(serde::de::Error::custom("duration cannot be infinite or NaN"));
     }
     if secs.is_sign_negative() {
         return Err(serde::de::Error::custom("duration cannot be negative"));
