@@ -214,7 +214,7 @@ device_name = "Emulator1"
 fn start_ecuemulator_container_with_config(
     config_toml: &str,
 ) -> testcontainers::Container<GenericImage> {
-    let container = GenericImage::new("tuwienspaceteam/ecuemulator", "feat-docker-integration")
+    let container = GenericImage::new("tuwienspaceteam/ecuemulator", "latest")
         .with_network("host")
         .with_env_var("CONFIG_PATH", "/config/config.toml")
         .with_copy_to("/config/config.toml", config_toml.as_bytes().to_vec())
