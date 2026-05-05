@@ -1,15 +1,17 @@
 //! Contains code related to sending/receiving CAN messages.mod can_thread;
 
+use anyhow::{Context, Result, bail, ensure};
+use liquidcan::{CanMessage, CanMessageId, NODE_ID_BROADCAST, NODE_ID_INVALID, NODE_ID_SERVER};
+use socketcan::{
+    CanAnyFrame, CanFdFrame, CanFdSocket, EmbeddedFrame, Frame, Socket, SocketOptions, StandardId,
+};
 use std::{
     sync::{Arc, mpsc},
     thread::Scope,
+    time::Duration,
 };
 
-use anyhow::{Context, Result, bail, ensure};
-use liquidcan::{CanMessage, CanMessageId, NODE_ID_BROADCAST, NODE_ID_INVALID, NODE_ID_SERVER};
-use socketcan::{CanAnyFrame, CanFdFrame, CanFdSocket, EmbeddedFrame, Frame, Socket, StandardId};
-
-use crate::events::{self, Event, EventDispatcher};
+use crate::events::{self, Event, EventDispatcher, EventKind};
 
 pub fn spawn_can_threads<'a>(
     interfaces: &'a [&'a str],
@@ -24,9 +26,15 @@ pub fn spawn_can_threads<'a>(
     let sockets = interfaces
         .iter()
         .map(|&interface| {
-            let socket = Arc::new(CanFdSocket::open(interface).with_context(|| {
+            let socket = CanFdSocket::open(interface).with_context(|| {
                 format!("failed to open can fd socket for interface {}", interface)
-            })?);
+            })?;
+
+            // Make receive threads responsive to shutdown by ensuring reads don't block forever.
+            // On timeout the recv thread will just loop and check for Shutdown.
+            socket.set_read_timeout(Some(Duration::from_millis(50)))?;
+
+            let socket = Arc::new(socket);
             Ok((interface, socket))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -34,29 +42,42 @@ pub fn spawn_can_threads<'a>(
     for (interface, socket) in &sockets {
         let interface = *interface;
         let socket = Arc::clone(socket);
-        scope.spawn(move || can_recv_thread(interface, socket, event_dispatcher));
+        socket.set_recv_own_msgs(false)?;
+
+        // Subscribe each recv thread so it can terminate on Event::Shutdown.
+        let (shutdown_tx, shutdown_rx) = mpsc::channel::<Event>();
+        let events = vec![EventKind::Shutdown];
+
+        event_dispatcher.subscribe(
+            shutdown_tx,
+            events,
+            format!("CAN recv thread ({interface})"),
+        );
+
+        scope.spawn(move || can_recv_thread(interface, socket, event_dispatcher, shutdown_rx));
     }
 
-    scope.spawn(move || can_send_thread(sockets, event_dispatcher));
+    let (sender, receiver) = mpsc::channel::<events::Event>();
+    let events = vec![
+        EventKind::SendCanMessage,
+        EventKind::RelayCanMessage,
+        EventKind::Shutdown,
+    ];
+    event_dispatcher.subscribe(sender, events, "CAN send thread");
+
+    scope.spawn(move || can_send_thread(sockets, receiver));
 
     Ok(())
 }
 
-fn can_recv_thread(interface: &str, socket: Arc<CanFdSocket>, event_dispatcher: &EventDispatcher) {
-    loop {
-        if let Err(error) = receive_frame(interface, &socket, event_dispatcher) {
-            eprintln!("CAN receive thread error on {interface}: {error:#}");
-        }
-    }
-}
-
-fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &EventDispatcher) {
-    let (sender, receiver) = mpsc::channel::<events::Event>();
-    event_dispatcher.subscribe(sender, "CAN send thread");
-
-    while let Ok(event) = receiver.recv() {
+fn can_send_thread(
+    sockets: Vec<(&str, Arc<CanFdSocket>)>,
+    event_receiver: mpsc::Receiver<events::Event>,
+) {
+    while let Ok(event) = event_receiver.recv() {
         match event {
-            events::Event::SendCanMessage {
+            Event::Shutdown => break,
+            Event::SendCanMessage {
                 receiver_node_id,
                 message,
             } => {
@@ -82,7 +103,7 @@ fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &Ev
                     }
                 }
             }
-            events::Event::RelayCanMessage {
+            Event::RelayCanMessage {
                 from_interface,
                 frame,
             } => {
@@ -100,14 +121,49 @@ fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &Ev
     }
 }
 
+fn can_recv_thread(
+    interface: &str,
+    socket: Arc<CanFdSocket>,
+    event_dispatcher: &EventDispatcher,
+    shutdown_rx: mpsc::Receiver<events::Event>,
+) {
+    use std::sync::mpsc::TryRecvError;
+
+    loop {
+        // Check for shutdown without blocking.
+        match shutdown_rx.try_recv() {
+            Ok(Event::Shutdown) => break,
+            Ok(_) => {}
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => break,
+        }
+
+        if let Err(error) = receive_frame(interface, &socket, event_dispatcher) {
+            // With the read timeout set, timeouts are expected; `receive_frame` turns them into Ok(()).
+            eprintln!("CAN receive thread error on {interface}: {error:#}");
+        }
+    }
+}
+
 fn receive_frame(
     interface: &str,
     socket: &CanFdSocket,
     event_dispatcher: &EventDispatcher,
 ) -> Result<()> {
-    let frame = socket
-        .read_frame()
-        .with_context(|| format!("failed to read CAN frame on interface {}", interface))?;
+    let frame = match socket.read_frame() {
+        Ok(frame) => frame,
+        Err(e)
+            if e.kind() == std::io::ErrorKind::WouldBlock
+                || e.kind() == std::io::ErrorKind::TimedOut =>
+        {
+            // Timeouts are ok to allow for shutdown of the receive thread.
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(anyhow::Error::from(e))
+                .with_context(|| format!("failed to read CAN frame on interface {}", interface));
+        }
+    };
 
     let CanAnyFrame::Fd(frame) = frame else {
         anyhow::bail!(
@@ -121,7 +177,7 @@ fn receive_frame(
         socketcan::Id::Standard(id) => id.as_raw(),
         socketcan::Id::Extended(id) => id.standard_id().as_raw(),
     };
-    let message_id: liquidcan::CanMessageId = raw_id.into();
+    let message_id: CanMessageId = raw_id.into();
 
     if message_id.receiver_id() == NODE_ID_INVALID {
         bail!(

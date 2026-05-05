@@ -8,17 +8,68 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Speed up CI builds a bit by not generating debug symbols.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Make CI script executable
-      run: chmod +x ci-rust.sh
-    - name: Run CI checks
-      run: ./ci-rust.sh all
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Cache Cargo registry + build artifacts. This is usually the biggest win for Rust CI runtimes.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Enable vcan support on runner (fast path first)
+        run: |
+          set -euxo pipefail
+
+          if ! command -v setcap >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y libcap2-bin
+          fi
+
+          # Try to load SocketCAN + vcan.
+          sudo modprobe can || true
+          sudo modprobe can_raw || true
+
+          if ! sudo modprobe vcan; then
+            # GitHub's ubuntu runners use an Azure-flavoured kernel. Only install extra modules when needed.
+            sudo apt-get update
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)" \
+              || sudo apt-get install -y linux-modules-extra-azure \
+              || true
+
+            sudo modprobe vcan || true
+          fi
+
+          # Helpful debug output when the kernel simply doesn't provide vcan.
+          if ! lsmod | grep -q '^vcan\b'; then
+            echo "WARNING: vcan kernel module is not available on this runner kernel ($(uname -r))."
+            echo "         vcan-based integration tests will fail unless you use a runner/kernel that provides vcan."
+          fi
+
+      - name: Build & install ferroflow-vcan helper (CAP_NET_ADMIN)
+        run: |
+          set -euxo pipefail
+
+          # Build the helper in *debug* profile so it can reuse compilation artifacts from the rest of the CI run.
+          cargo build --bin ferroflow-vcan --features test-vcan
+
+          # Grant CAP_NET_ADMIN so integration tests can create/delete vcan interfaces without sudo.
+          sudo setcap cap_net_admin+ep target/debug/ferroflow-vcan
+
+          # Put the helper on PATH for the test process (tests invoke it via `Command::new("ferroflow-vcan")`).
+          echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+
+      - name: Make CI script executable
+        run: chmod +x ci-rust.sh
+
+      - name: Run CI checks
+        run: ./ci-rust.sh all

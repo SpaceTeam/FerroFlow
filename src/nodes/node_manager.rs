@@ -33,6 +33,14 @@ impl<'a> NodeManager<'a> {
         }
     }
 
+    pub fn start_node_registration(&self) {
+        self.event_dispatcher
+            .dispatch(events::Event::SendCanMessage {
+                receiver_node_id: liquidcan::NODE_ID_BROADCAST,
+                message: CanMessage::NodeInfoReq,
+            });
+    }
+
     pub fn handle_can_message_from_node(
         &self,
         message_id: CanMessageId,
@@ -344,6 +352,9 @@ impl<'a> NodeManager<'a> {
         }
 
         Ok(())
+    }
+    pub fn get_nodes(&self) -> &DashMap<u8, CanNode> {
+        &self.can_nodes
     }
 
     fn can_data_value_to_json(value: CanDataValue) -> serde_json::Value {

@@ -4,7 +4,30 @@ It interfaces with our custom Engine Control Units ECUs, through our custom [Liq
 On the other end, it provides a high-level API for our [ECUI](https://github.com/SpaceTeam/web_ecui_houbolt), which is the user interface for our ECUs.
 
 # Setup
-TODO
+
+## Integration tests: SocketCAN / vcan
+
+Some integration tests talk to the ECUemulator over SocketCAN. For that you use a virtual CAN interface.
+
+### Test helper: `ferroflow-vcan`
+For test environments, this repo provides a small helper binary that can be granted `CAP_NET_ADMIN` once via `setcap`.
+Integration tests will automatically use it (if it’s available on `PATH`) to create/delete `vcan` interfaces without sudo.
+
+Build the helper (feature-gated; not part of normal builds):
+```bash
+cargo build --release --features test-vcan --bin ferroflow-vcan
+```
+Put it on PATH (recommended for tests):
+```bash
+install -m 0755 ./target/release/ferroflow-vcan ~/.local/bin/ferroflow-vcan
+sudo setcap cap_net_admin+ep ~/.local/bin/ferroflow-vcan
+```
+
+Manual usage:
+```bash
+ferroflow-vcan up vcan0
+ferroflow-vcan down vcan0
+```
 
 
 ## Development
