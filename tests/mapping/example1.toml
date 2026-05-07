@@ -1,36 +1,31 @@
-id = "example1"
-description = "This is an example mapping file."
-
-[[mapping]]
-raw.node = "node1"
-raw.field = "field1"
+[[mapping.node1]]
 name = "Example Mapping 1"
 type = "telemetry"
+raw_field = "field1"
 value.unit = "mAh"
 value.slope = 0.5
 value.offset = 1.0
 
-[[mapping.logical]]
+[[mapping.node1.logical]]
 range = { min = 100 }
 value = "High"
 color = "#ff0000"
 
-[[mapping.logical]]
+[[mapping.node1.logical]]
 range = { min = 50, max = 100 }
 value = "Normal"
 
-[[mapping.logical]]
+[[mapping.node1.logical]]
 range = { max = 50 }
 value = "Low"
 
 
 # alternatively
 
-[[mapping]]
+[[mapping.node1]]
 name = "Example Mapping 2"
 type = "parameter"
-
-raw = { node = "node1", field = "field2" }
+raw_field = "field2"
 
 value = { slope = 0.5, offset = 1.0, unit = "mAh" }
 

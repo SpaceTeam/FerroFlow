@@ -1,0 +1,5 @@
+[[mapping.FuelECU]]
+name = "fuel_level"
+type = "telemetry"
+raw_field = "level_adc"
+value = { slope = 0.5, offset = 1.0, unit = "mAh" }

@@ -1,33 +1,29 @@
 use anyhow::{Context, bail, ensure};
 use liquidcan::payloads::{CanDataType, CanDataValue};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs,
+    path::Path,
+};
 use toml::Value;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
-pub struct NodeMapping {
-    pub id: String,
-    pub description: String,
-    pub mapping: Vec<MappingEntry>,
+pub struct Mapping {
+    pub mapping: BTreeMap<String, Vec<MappingEntry>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MappingEntry {
     pub name: String,
-    pub raw: RawField,
     #[serde(rename = "type")]
     pub field_type: FieldType,
+    pub raw_field: String,
     #[serde(default)]
     pub value: ValueParams,
     #[serde(default)]
     pub logical: Vec<LogicalRule>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RawField {
-    pub node: String,
-    pub field: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,24 +46,32 @@ impl Default for ValueParams {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LogicalRule {
-    pub range: LogicalRangeConfig,
+    pub range: LogicalRange,
     pub value: Value,
     #[serde(default)]
     pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct LogicalRangeConfig {
+pub struct LogicalRange {
     /// Inclusive lower bound by default. If omitted, the range is unbounded below.
-    #[serde(default)]
-    pub min: Option<f64>,
+    #[serde(default = "default_unbounded_min")]
+    pub min: f64,
     /// Exclusive upper bound by default. If omitted, the range is unbounded above.
-    #[serde(default)]
-    pub max: Option<f64>,
+    #[serde(default = "default_unbounded_max")]
+    pub max: f64,
     #[serde(default = "default_min_inclusive")]
     pub min_inclusive: bool,
     #[serde(default)]
     pub max_inclusive: bool,
+}
+
+fn default_unbounded_min() -> f64 {
+    f64::NEG_INFINITY
+}
+
+fn default_unbounded_max() -> f64 {
+    f64::INFINITY
 }
 
 fn default_min_inclusive() -> bool {
@@ -93,71 +97,129 @@ pub struct MappedValue {
     pub unit: String,
 }
 
-impl NodeMapping {
+pub struct MappingLookupResult<'a> {
+    pub node_name: &'a str,
+    pub mapping_entry: &'a MappingEntry,
+}
+
+impl Mapping {
     pub fn load_mapping_from_file(path: &str) -> anyhow::Result<Self> {
         if path.is_empty() {
             return Ok(Self::default());
         }
 
-        let toml_str = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read mapping config file at {}", path))?;
-        Self::parse_mapping(&toml_str)
+        Self::load_mapping_file(Path::new(path))
+    }
+
+    pub fn load_mapping_from_path(path: &str) -> anyhow::Result<Self> {
+        if path.is_empty() {
+            return Ok(Self::default());
+        }
+
+        Self::load_mapping_directory(Path::new(path))
     }
 
     pub fn parse_mapping(toml_str: &str) -> anyhow::Result<Self> {
-        let config = toml::from_str::<Self>(toml_str)
+        let config = toml::from_str::<Mapping>(toml_str)
             .map_err(|err| anyhow::anyhow!("Failed to parse mapping config: {}", err))?;
 
-        config.validate().with_context(|| {
-            format!(
-                "Mapping validation failed for config with id: {}",
-                config.id
-            )
-        })?;
+        config.validate()?;
 
         Ok(config)
+    }
+
+    fn load_mapping_file(path: &Path) -> anyhow::Result<Self> {
+        let toml_str = fs::read_to_string(path)
+            .with_context(|| format!("Failed to read mapping config file at {}", path.display()))?;
+
+        Self::parse_mapping(&toml_str)
+            .with_context(|| format!("Failed to load mapping config from {}", path.display()))
+    }
+
+    fn load_mapping_directory(path: &Path) -> anyhow::Result<Self> {
+        let mut entries = fs::read_dir(path)
+            .with_context(|| format!("Failed to read mapping directory {}", path.display()))?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<std::io::Result<Vec<_>>>()
+            .with_context(|| format!("Failed to list mapping directory {}", path.display()))?;
+
+        entries.retain(|entry| {
+            entry.is_file()
+                && entry
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("toml"))
+        });
+        entries.sort();
+
+        ensure!(
+            !entries.is_empty(),
+            "mapping directory {} contains no TOML files",
+            path.display()
+        );
+
+        let mut combined = Self::default();
+        for entry in entries {
+            let mapping = Self::load_mapping_file(&entry).with_context(|| {
+                format!("Failed to load mapping config from {}", entry.display())
+            })?;
+
+            for (node, fields) in mapping.mapping {
+                combined
+                    .mapping
+                    .entry(node)
+                    .or_default()
+                    .extend(fields.into_iter());
+            }
+        }
+
+        combined.validate().with_context(|| {
+            format!("Mapping validation failed for directory {}", path.display())
+        })?;
+
+        Ok(combined)
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
         let mut names = HashSet::new();
         let mut raw_fields = HashSet::new();
-        for mapping in &self.mapping {
-            // check name is not empty and unique
+        for (node, fields) in &self.mapping {
             ensure!(
-                !mapping.name.trim().is_empty(),
-                "mapping name must not be empty"
+                !node.trim().is_empty(),
+                "mapping contains an entry with an empty node name"
             );
-            if !names.insert(mapping.name.as_str()) {
-                anyhow::bail!("Duplicate mapping name: {}", mapping.name);
-            }
+            for field in fields {
+                field.validate().with_context(|| {
+                    format!("mapping for node {} field {} is invalid", node, field.name)
+                })?;
 
-            // check raw.node and raw.field are not empty and unique in combination
-            let raw_id = (mapping.raw.node.as_str(), mapping.raw.field.as_str());
-            ensure!(
-                !raw_id.0.trim().is_empty(),
-                "mapping {} has empty raw.node",
-                mapping.name
-            );
-            ensure!(
-                !raw_id.1.trim().is_empty(),
-                "mapping {} has empty raw.field",
-                mapping.name
-            );
-            if !raw_fields.insert(raw_id) {
-                anyhow::bail!(
-                    "Duplicate raw field mapping for node '{}' field '{}'",
-                    mapping.raw.node,
-                    mapping.raw.field
-                );
+                let raw_id = (node.as_str(), field.raw_field.as_str());
+                if !raw_fields.insert(raw_id) {
+                    anyhow::bail!(
+                        "Duplicate raw field mapping for node '{}' field '{}'",
+                        node,
+                        field.raw_field
+                    );
+                }
+
+                if !names.insert(field.name.as_str()) {
+                    anyhow::bail!("Duplicate mapping name '{}'", field.name);
+                }
             }
-            mapping.validate()?;
         }
 
         Ok(())
     }
 
-    pub fn get_mapping_for_name(&self, name: &str) -> Option<&MappingEntry> {
-        self.mapping.iter().find(|m| m.name == name)
+    pub fn get_mapping_for_name(&self, name: &str) -> Option<MappingLookupResult<'_>> {
+        self.mapping.iter().find_map(|(node, fields)| {
+            fields
+                .iter()
+                .find(|field| field.name == name)
+                .map(|field| MappingLookupResult {
+                    node_name: node.as_str(),
+                    mapping_entry: field,
+                })
+        })
     }
 
     pub fn get_mapping_for_raw(
@@ -165,28 +227,33 @@ impl NodeMapping {
         node: &str,
         field: &str,
         field_type: FieldType,
-    ) -> Option<&MappingEntry> {
-        self.mapping.iter().find(|mapping| {
-            mapping.raw.node == node
-                && mapping.raw.field == field
-                && mapping.field_type == field_type
-        })
+    ) -> Option<MappingLookupResult<'_>> {
+        self.mapping
+            .get_key_value(node)
+            .and_then(|(node, mapping_entries)| {
+                mapping_entries
+                    .iter()
+                    .find(|mapping| mapping.raw_field == field && mapping.field_type == field_type)
+                    .map(|mapping| MappingLookupResult {
+                        node_name: node,
+                        mapping_entry: mapping,
+                    })
+            })
     }
 }
 
 impl MappingEntry {
     fn validate(&self) -> anyhow::Result<()> {
         ensure!(
-            !self.raw.node.trim().is_empty(),
-            "mapping {} must specify raw.node",
-            self.name
-        );
-        ensure!(
-            !self.raw.field.trim().is_empty(),
-            "mapping {} must specify raw.field",
-            self.name
+            !self.name.trim().is_empty(),
+            "mapping name must be non-empty",
         );
 
+        ensure!(
+            !self.raw_field.trim().is_empty(),
+            "mapping {} has an empty raw_field",
+            self.name
+        );
         ensure!(
             self.value.slope.is_finite(),
             "mapping {} has a non-finite slope",
@@ -221,25 +288,17 @@ impl MappingEntry {
         let mut covered_ranges = Vec::new();
 
         for (index, rule) in self.logical.iter().enumerate() {
-            let range = rule.range.to_logical_range().with_context(|| {
-                format!(
-                    "Logical rule {} for mapping {} has an invalid range",
-                    index + 1,
-                    self.name
-                )
-            })?;
-
-            if !range.is_non_empty() {
+            if !rule.range.is_non_empty() {
                 bail!(
                     "Logical rule {} for mapping {} has an empty range {}",
                     index + 1,
                     self.name,
-                    range.describe()
+                    rule.range.describe()
                 );
             }
 
             for (covered_index, covered_range) in covered_ranges.iter().enumerate() {
-                if let Some(overlap) = range.intersection(covered_range) {
+                if let Some(overlap) = rule.range.intersection(covered_range) {
                     bail!(
                         "Logical rule {} for mapping {} overlaps with rule {} in {}; overlapping ranges are ambiguous",
                         index + 1,
@@ -250,7 +309,7 @@ impl MappingEntry {
                 }
             }
 
-            covered_ranges.push(range);
+            covered_ranges.push(rule.range.clone());
         }
 
         let uncovered_ranges = covered_ranges.iter().fold(
@@ -321,186 +380,117 @@ impl MappingEntry {
 
 impl LogicalRule {
     fn matches(&self, mapped_value: f64) -> bool {
-        self.range
-            .to_logical_range()
-            .is_ok_and(|range| range.contains(mapped_value))
+        self.range.contains(mapped_value)
     }
-}
-
-impl LogicalRangeConfig {
-    /// Converts the TOML range representation into the internal interval type
-    fn to_logical_range(&self) -> anyhow::Result<LogicalRange> {
-        if let Some(min) = self.min {
-            ensure!(min.is_finite(), "range min must be finite");
-        }
-        if let Some(max) = self.max {
-            ensure!(max.is_finite(), "range max must be finite");
-        }
-
-        Ok(LogicalRange::new(
-            RangeBound {
-                value: self.min,
-                inclusive: self.min_inclusive,
-            },
-            RangeBound {
-                value: self.max,
-                inclusive: self.max_inclusive,
-            },
-        ))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct LogicalRange {
-    lower: RangeBound,
-    upper: RangeBound,
 }
 
 impl LogicalRange {
     /// The complete domain
     fn all() -> Self {
-        Self::new(
-            RangeBound::negative_infinity(),
-            RangeBound::positive_infinity(),
-        )
-    }
-
-    fn new(lower: RangeBound, upper: RangeBound) -> Self {
-        Self { lower, upper }
+        Self {
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: false,
+            max_inclusive: false,
+        }
     }
 
     fn contains(&self, value: f64) -> bool {
-        let above_lower = match self.lower.value {
-            Some(lower) if self.lower.inclusive => value >= lower,
-            Some(lower) => value > lower,
-            None => true,
+        let above_lower = if self.min_inclusive {
+            value >= self.min
+        } else {
+            value > self.min
         };
-        let below_upper = match self.upper.value {
-            Some(upper) if self.upper.inclusive => value <= upper,
-            Some(upper) => value < upper,
-            None => true,
+        let below_upper = if self.max_inclusive {
+            value <= self.max
+        } else {
+            value < self.max
         };
-
         above_lower && below_upper
     }
 
     fn intersection(&self, other: &Self) -> Option<Self> {
-        let intersection = Self::new(
-            RangeBound::max_lower(self.lower, other.lower),
-            RangeBound::min_upper(self.upper, other.upper),
-        );
+        let max_cmp = self.max.partial_cmp(&other.max).unwrap();
+        let min_cmp = self.min.partial_cmp(&other.min).unwrap();
 
-        intersection.is_non_empty().then_some(intersection)
+        let max = self.max.min(other.max);
+        let min = self.min.max(other.min);
+
+        let min_inclusive = match min_cmp {
+            std::cmp::Ordering::Less => other.min_inclusive,
+            std::cmp::Ordering::Greater => self.min_inclusive,
+            std::cmp::Ordering::Equal => self.min_inclusive && other.min_inclusive,
+        };
+
+        let max_inclusive = match max_cmp {
+            std::cmp::Ordering::Less => self.max_inclusive,
+            std::cmp::Ordering::Greater => other.max_inclusive,
+            std::cmp::Ordering::Equal => self.max_inclusive && other.max_inclusive,
+        };
+
+        let intersection = Self {
+            min,
+            max,
+            min_inclusive,
+            max_inclusive,
+        };
+        if intersection.is_non_empty() {
+            Some(intersection)
+        } else {
+            None
+        }
     }
 
     fn difference(&self, other: &Self) -> Vec<Self> {
         let Some(intersection) = self.intersection(other) else {
-            return vec![*self];
+            return vec![self.clone()];
         };
 
         let mut remaining = Vec::new();
 
-        if intersection.lower.value.is_some() {
-            let left = Self::new(
-                self.lower,
-                RangeBound {
-                    value: intersection.lower.value,
-                    inclusive: !intersection.lower.inclusive,
-                },
-            );
-            if left.is_non_empty() {
-                remaining.push(left);
-            }
+        let left = Self {
+            min: self.min,
+            max: intersection.min,
+            min_inclusive: self.min_inclusive,
+            max_inclusive: !intersection.min_inclusive,
+        };
+        if left.is_non_empty() {
+            remaining.push(left);
         }
 
-        if intersection.upper.value.is_some() {
-            let right = Self::new(
-                RangeBound {
-                    value: intersection.upper.value,
-                    inclusive: !intersection.upper.inclusive,
-                },
-                self.upper,
-            );
-            if right.is_non_empty() {
-                remaining.push(right);
-            }
+        let right = Self {
+            min: intersection.max,
+            max: self.max,
+            min_inclusive: !intersection.max_inclusive,
+            max_inclusive: self.max_inclusive,
+        };
+        if right.is_non_empty() {
+            remaining.push(right);
         }
 
         remaining
     }
 
     fn is_non_empty(&self) -> bool {
-        match (self.lower.value, self.upper.value) {
-            (Some(lower), Some(upper)) if lower > upper => false,
-            (Some(lower), Some(upper)) if lower == upper => {
-                self.lower.inclusive && self.upper.inclusive
-            }
-            _ => true,
+        if self.max > self.min {
+            return true;
         }
+
+        if self.max == self.min {
+            return self.min_inclusive && self.max_inclusive;
+        }
+
+        false
     }
 
     fn describe(&self) -> String {
-        let lower = match self.lower.value {
-            Some(value) if self.lower.inclusive => format!("[{value}"),
-            Some(value) => format!("({value}"),
-            None => "(-inf".to_string(),
-        };
-        let upper = match self.upper.value {
-            Some(value) if self.upper.inclusive => format!("{value}]"),
-            Some(value) => format!("{value})"),
-            None => "inf)".to_string(),
-        };
-
-        format!("{lower}, {upper}")
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct RangeBound {
-    value: Option<f64>,
-    inclusive: bool,
-}
-
-impl RangeBound {
-    fn negative_infinity() -> Self {
-        Self {
-            value: None,
-            inclusive: false,
-        }
-    }
-
-    fn positive_infinity() -> Self {
-        Self {
-            value: None,
-            inclusive: false,
-        }
-    }
-
-    fn finite(value: f64, inclusive: bool) -> Self {
-        Self {
-            value: Some(value),
-            inclusive,
-        }
-    }
-
-    fn max_lower(left: Self, right: Self) -> Self {
-        match (left.value, right.value) {
-            (None, _) => right,
-            (_, None) => left,
-            (Some(left_value), Some(right_value)) if left_value > right_value => left,
-            (Some(left_value), Some(right_value)) if left_value < right_value => right,
-            (Some(value), Some(_)) => Self::finite(value, left.inclusive && right.inclusive),
-        }
-    }
-
-    fn min_upper(left: Self, right: Self) -> Self {
-        match (left.value, right.value) {
-            (None, _) => right,
-            (_, None) => left,
-            (Some(left_value), Some(right_value)) if left_value < right_value => left,
-            (Some(left_value), Some(right_value)) if left_value > right_value => right,
-            (Some(value), Some(_)) => Self::finite(value, left.inclusive && right.inclusive),
-        }
+        format!(
+            "{}{}, {}{}",
+            if self.min_inclusive { "[" } else { "(" },
+            self.min,
+            self.max,
+            if self.max_inclusive { "]" } else { ")" }
+        )
     }
 }
 
@@ -549,53 +539,60 @@ where
     <T as TryFrom<i128>>::Error: std::fmt::Debug,
 {
     let rounded = value.round();
+    ensure!(
+        (value - rounded).abs() <= 1e-9,
+        "raw value {value} is not an integer"
+    );
 
     T::try_from(rounded as i128).map_err(|_| anyhow::anyhow!("raw value {rounded} is out of range"))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::PathBuf};
+
     use liquidcan::payloads::{CanDataType, CanDataValue};
     use toml::Value;
 
-    use super::{LogicalValue, NodeMapping};
+    use super::{LogicalValue, Mapping};
 
     #[test]
     fn parses_and_applies_mapping_schema() {
-        let mapping = NodeMapping::parse_mapping(
+        let mapping = Mapping::parse_mapping(
             r##"
 id = "example"
 
-[[mapping]]
+[[mapping.ECU]]
 name = "tank_pressure"
 type = "telemetry"
-raw = { node = "ECU", field = "pressure_adc" }
+raw_field = "pressure_adc"
 value = { slope = 0.5, offset = 1.0, unit = "bar" }
 
-[[mapping.logical]]
+[[mapping.ECU.logical]]
 range = { min = 100 }
 value = "High"
 color = "#ff0000"
 
-[[mapping.logical]]
+[[mapping.ECU.logical]]
 range = { max = 100 }
 value = "Normal"
 "##,
         )
         .expect("mapping should parse");
 
-        let entry = mapping
+        let lookup = mapping
             .get_mapping_for_name("tank_pressure")
             .expect("entry should exist");
 
-        let mapped = entry
+        let mapped = lookup
+            .mapping_entry
             .mapped_value(&CanDataValue::UInt16(198))
             .expect("raw value should map");
         assert_eq!(mapped.value, 100.0);
         assert_eq!(mapped.unit, "bar");
 
         assert_eq!(
-            entry.logical_value(mapped.value),
+            lookup.mapping_entry.logical_value(mapped.value),
             Some(LogicalValue {
                 value: Value::String("High".to_string()),
                 color: Some("#ff0000".to_string()),
@@ -605,17 +602,17 @@ value = "Normal"
 
     #[test]
     fn rejects_duplicate_mapping_names() {
-        let error = NodeMapping::parse_mapping(
+        let error = Mapping::parse_mapping(
             r#"
-[[mapping]]
+[[mapping.node1]]
 name = "duplicate"
-raw = { node = "node1", field = "field1" }
+raw_field = "field1"
 type = "telemetry"
 value = { slope = 1.0, offset = 0.0 }
 
-[[mapping]]
+[[mapping.node1]]
 name = "duplicate"
-raw = { node = "node1", field = "field2" }
+raw_field = "field2"
 type = "telemetry"
 value = { slope = 1.0, offset = 0.0 }
 "#,
@@ -627,19 +624,20 @@ value = { slope = 1.0, offset = 0.0 }
 
     #[test]
     fn converts_mapped_value_back_to_raw_parameter_type() {
-        let mapping = NodeMapping::parse_mapping(
+        let mapping = Mapping::parse_mapping(
             r#"
-[[mapping]]
+[[mapping.ECU]]
 name = "valve_opening"
 type = "parameter"
-raw = { node = "ECU", field = "valve_raw" }
+raw_field = "valve_raw"
 value = { slope = 0.5, offset = 10.0, unit = "%" }
 "#,
         )
         .expect("mapping should parse");
 
-        let entry = mapping.get_mapping_for_name("valve_opening").unwrap();
-        let raw = entry
+        let lookup = mapping.get_mapping_for_name("valve_opening").unwrap();
+        let raw = lookup
+            .mapping_entry
             .raw_value_from_mapped(60.0, CanDataType::UInt8)
             .expect("mapped value should invert to raw");
 
@@ -647,25 +645,98 @@ value = { slope = 0.5, offset = 10.0, unit = "%" }
     }
 
     #[test]
+    fn rejects_fractional_raw_values_for_integer_parameters() {
+        let mapping = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "valve_opening"
+type = "parameter"
+raw_field = "valve_raw"
+value = { slope = 1.0, offset = 0.0 }
+"#,
+        )
+        .expect("mapping should parse");
+
+        let lookup = mapping.get_mapping_for_name("valve_opening").unwrap();
+        let error = lookup
+            .mapping_entry
+            .raw_value_from_mapped(10.2, CanDataType::UInt8)
+            .expect_err("fractional integer raw values should fail");
+
+        assert!(format!("{error:#}").contains("is not an integer"));
+    }
+
+    #[test]
+    fn rejects_duplicate_raw_fields_across_mapping_files() {
+        let dir = temp_mapping_dir("duplicate_raw");
+        fs::write(
+            dir.join("a.toml"),
+            r#"
+[[mapping.ECU]]
+name = "first"
+type = "telemetry"
+raw_field = "pressure"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("b.toml"),
+            r#"
+[[mapping.ECU]]
+name = "second"
+type = "telemetry"
+raw_field = "pressure"
+"#,
+        )
+        .unwrap();
+
+        let error = Mapping::load_mapping_from_path(dir.to_str().unwrap())
+            .expect_err("duplicate raw fields across files should fail");
+
+        assert!(format!("{error:#}").contains("Duplicate raw field"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loads_mapping_directory() {
+        let mapping = Mapping::load_mapping_from_path("tests/mapping/split")
+            .expect("split mapping directory should be valid");
+
+        assert!(mapping.get_mapping_for_name("fuel_level").is_some());
+        assert!(mapping.get_mapping_for_name("throttle_state").is_some());
+    }
+
+    #[test]
+    fn rejects_empty_mapping_directory() {
+        let dir = temp_mapping_dir("empty");
+
+        let error = Mapping::load_mapping_from_path(dir.to_str().unwrap())
+            .expect_err("empty mapping directories should fail");
+
+        assert!(format!("{error:#}").contains("contains no TOML files"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn checked_in_example_mapping_is_valid() {
-        NodeMapping::load_mapping_from_file("tests/mapping/example1.toml")
+        Mapping::load_mapping_from_file("tests/mapping/example1.toml")
             .expect("example mapping should be valid");
     }
 
     #[test]
     fn rejects_non_exhaustive_logical_rules() {
-        let error = NodeMapping::parse_mapping(
+        let error = Mapping::parse_mapping(
             r#"
-[[mapping]]
+[[mapping.ECU]]
 name = "temperature"
 type = "telemetry"
-raw = { node = "ECU", field = "temperature" }
+raw_field = "temperature"
 
-[[mapping.logical]]
+[[mapping.ECU.logical]]
 range = { max = 10 }
 value = "Cold"
 
-[[mapping.logical]]
+[[mapping.ECU.logical]]
 range = { min = 10, min_inclusive = false }
 value = "Hot"
 "#,
@@ -677,22 +748,22 @@ value = "Hot"
 
     #[test]
     fn rejects_overlapping_logical_rules() {
-        let error = NodeMapping::parse_mapping(
+        let error = Mapping::parse_mapping(
             r#"
-[[mapping]]
+[[mapping.ECU]]
 name = "temperature"
 type = "telemetry"
-raw = { node = "ECU", field = "temperature" }
+raw_field = "temperature"
 
-[[mapping.logical]]
+[[mapping.ECU.logical]]
 range = { max = 100 }
 value = "Low"
 
-[[mapping.logical]]
+[[mapping.ECU.logical]]
 range = { max = 50 }
 value = "Very low"
 
-[[mapping.logical]]
+[[mapping.ECU.logical]]
 range = { min = 100 }
 value = "High"
 "#,
@@ -704,22 +775,30 @@ value = "High"
 
     #[test]
     fn accepts_adjacent_ranges() {
-        NodeMapping::parse_mapping(
+        Mapping::parse_mapping(
             r#"
-[[mapping]]
+[[mapping.ECU]]
 name = "temperature"
 type = "telemetry"
-raw = { node = "ECU", field = "temperature" }
+raw_field = "temperature"
 
-[[mapping.logical]]
+[[mapping.ECU.logical]]
 range = { max = 10 }
 value = "Cold"
 
-[[mapping.logical]]
+[[mapping.ECU.logical]]
 range = { min = 10 }
 value = "Hot"
 "#,
         )
         .expect("adjacent ranges should cover the threshold exactly once");
+    }
+
+    fn temp_mapping_dir(name: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("ferro_flow_mapping_{name}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        path
     }
 }

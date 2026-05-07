@@ -21,4 +21,3 @@ pub fn load_config(path: &str) -> Result<Config> {
         .try_deserialize()
         .with_context(|| format!("Failed to deserialize config from {}", path))
 }
-

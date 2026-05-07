@@ -13,7 +13,7 @@ pub mod socket;
 pub fn run_with_config(config: Config) -> anyhow::Result<()> {
     let event_dispatcher = events::EventDispatcher::new();
 
-    let mapping = nodes::mapping::NodeMapping::load_mapping_from_file(&config.mapping_path)?;
+    let mapping = nodes::mapping::Mapping::load_mapping_from_path(&config.mapping_path)?;
 
     let node_manager = nodes::NodeManager::new(&event_dispatcher, mapping);
 
