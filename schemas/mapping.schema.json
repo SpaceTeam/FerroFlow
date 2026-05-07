@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spaceteam.at/ferroflow/schemas/mapping.schema.json",
+  "title": "FerroFlow Mapping",
+  "description": "TOML schema for FerroFlow node mapping files.",
+  "type": "object",
+  "required": ["mapping"],
+  "additionalProperties": false,
+  "properties": {
+    "mapping": {
+      "type": "object",
+      "description": "Mappings grouped by LiquidCAN node/device name.",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "patternProperties": {
+        ".+": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/mappingEntry"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "mappingEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "raw_field"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique application-facing mapping name."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["telemetry", "parameter"],
+          "description": "Whether the raw field is telemetry or a writable parameter."
+        },
+        "raw_field": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Raw LiquidCAN field name on the enclosing node."
+        },
+        "value": {
+          "$ref": "#/$defs/valueParams"
+        },
+        "logical": {
+          "type": "array",
+          "description": "Logical labels for mapped numeric ranges. Runtime validation requires these ranges to be non-overlapping and exhaustive when present.",
+          "items": {
+            "$ref": "#/$defs/logicalRule"
+          }
+        }
+      }
+    },
+    "valueParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slope", "offset"],
+      "properties": {
+        "slope": {
+          "type": "number",
+          "not": { "const": 0 },
+          "default": 1.0,
+          "description": "Linear conversion slope: mapped = raw * slope + offset."
+        },
+        "offset": {
+          "type": "number",
+          "default": 0.0,
+          "description": "Linear conversion offset: mapped = raw * slope + offset."
+        },
+        "unit": {
+          "type": "string",
+          "default": ""
+        }
+      }
+    },
+    "logicalRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["range", "value"],
+      "properties": {
+        "range": {
+          "$ref": "#/$defs/logicalRange"
+        },
+        "value": {
+          "description": "Logical value returned when the mapped numeric value is inside the range."
+        },
+        "color": {
+          "type": "string",
+          "description": "Optional display color, commonly a hex color such as #ff0000."
+        }
+      }
+    },
+    "logicalRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "type": "number",
+          "description": "Lower bound. Omit for an unbounded lower range."
+        },
+        "max": {
+          "type": "number",
+          "description": "Upper bound. Omit for an unbounded upper range."
+        },
+        "min_inclusive": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_inclusive": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}

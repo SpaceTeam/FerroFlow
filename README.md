@@ -57,6 +57,8 @@ logical = [
 ]
 ```
 
+The repository includes [schemas/mapping.schema.json](schemas/mapping.schema.json) and [taplo.toml](taplo.toml) so Taplo-compatible editors, including VS Code with Even Better TOML, can validate mapping files before the application loads them. The schema is associated with `mapping.toml` files and TOML files under `mapping/` or `mappings/` directories.
+
 ### Running CI Checks
 
 The repository includes a CI script (`ci-rust.sh`) that runs all quality checks on the Rust implementation. This script is used both locally and in GitHub Actions
