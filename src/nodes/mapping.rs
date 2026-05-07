@@ -560,8 +560,6 @@ mod tests {
     fn parses_and_applies_mapping_schema() {
         let mapping = Mapping::parse_mapping(
             r##"
-id = "example"
-
 [[mapping.ECU]]
 name = "tank_pressure"
 type = "telemetry"
