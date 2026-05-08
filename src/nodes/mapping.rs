@@ -277,9 +277,7 @@ impl MappingEntry {
 
     /// Validates that logical rules form an unambiguous partition of all mapped values.
     ///
-    /// Empty logical rules are allowed. Once any logical rule is present, the ranges must be
-    /// non-empty, non-overlapping, and exhaustive over `(-inf, inf)` so every mapped value has
-    /// exactly one logical value.
+    /// Empty logical rules are allowed. Ranges must be non-empty and non-overlapping.
     fn validate_logical_rules(&self) -> anyhow::Result<()> {
         if self.logical.is_empty() {
             return Ok(());
@@ -310,24 +308,6 @@ impl MappingEntry {
             }
 
             covered_ranges.push(rule.range.clone());
-        }
-
-        let uncovered_ranges = covered_ranges.iter().fold(
-            vec![LogicalRange::all()],
-            |remaining_uncovered_ranges, covered_range| {
-                remaining_uncovered_ranges
-                    .into_iter()
-                    .flat_map(|range| range.difference(covered_range))
-                    .collect::<Vec<_>>()
-            },
-        );
-
-        if let Some(uncovered_range) = uncovered_ranges.first() {
-            bail!(
-                "Logical rules for mapping {} are not exhaustive; values in {} are not matched",
-                self.name,
-                uncovered_range.describe()
-            );
         }
 
         Ok(())
@@ -385,16 +365,6 @@ impl LogicalRule {
 }
 
 impl LogicalRange {
-    /// The complete domain
-    fn all() -> Self {
-        Self {
-            min: f64::NEG_INFINITY,
-            max: f64::INFINITY,
-            min_inclusive: false,
-            max_inclusive: false,
-        }
-    }
-
     fn contains(&self, value: f64) -> bool {
         let above_lower = if self.min_inclusive {
             value >= self.min
@@ -439,36 +409,6 @@ impl LogicalRange {
         } else {
             None
         }
-    }
-
-    fn difference(&self, other: &Self) -> Vec<Self> {
-        let Some(intersection) = self.intersection(other) else {
-            return vec![self.clone()];
-        };
-
-        let mut remaining = Vec::new();
-
-        let left = Self {
-            min: self.min,
-            max: intersection.min,
-            min_inclusive: self.min_inclusive,
-            max_inclusive: !intersection.min_inclusive,
-        };
-        if left.is_non_empty() {
-            remaining.push(left);
-        }
-
-        let right = Self {
-            min: intersection.max,
-            max: self.max,
-            min_inclusive: !intersection.max_inclusive,
-            max_inclusive: self.max_inclusive,
-        };
-        if right.is_non_empty() {
-            remaining.push(right);
-        }
-
-        remaining
     }
 
     fn is_non_empty(&self) -> bool {
@@ -719,29 +659,6 @@ raw_field = "pressure"
     fn checked_in_example_mapping_is_valid() {
         Mapping::load_mapping_from_file("tests/mapping/example1.toml")
             .expect("example mapping should be valid");
-    }
-
-    #[test]
-    fn rejects_non_exhaustive_logical_rules() {
-        let error = Mapping::parse_mapping(
-            r#"
-[[mapping.ECU]]
-name = "temperature"
-type = "telemetry"
-raw_field = "temperature"
-
-[[mapping.ECU.logical]]
-range = { max = 10 }
-value = "Cold"
-
-[[mapping.ECU.logical]]
-range = { min = 10, min_inclusive = false }
-value = "Hot"
-"#,
-        )
-        .expect_err("rules should miss exactly 10");
-
-        assert!(format!("{error:#}").contains("not exhaustive"));
     }
 
     #[test]

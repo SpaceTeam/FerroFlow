@@ -49,7 +49,7 @@
         },
         "logical": {
           "type": "array",
-          "description": "Logical labels for mapped numeric ranges. Runtime validation requires these ranges to be non-overlapping and exhaustive when present.",
+          "description": "Logical labels for mapped numeric ranges. Runtime validation requires these ranges to be non-overlapping.",
           "items": {
             "$ref": "#/$defs/logicalRule"
           }
