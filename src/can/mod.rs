@@ -142,15 +142,7 @@ fn log_can_rx(
     }
 }
 
-fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &EventDispatcher) {
-    let (sender, receiver) = mpsc::channel::<events::Event>();
-    let events = vec![
-        EventKind::SendCanMessage,
-        EventKind::RelayCanMessage,
-        EventKind::Shutdown,
-    ];
-    event_dispatcher.subscribe(sender, events, "CAN send thread");
-
+fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, receiver: mpsc::Receiver<events::Event>) {
     while let Ok(event) = receiver.recv() {
         match event {
             Event::Shutdown => break,

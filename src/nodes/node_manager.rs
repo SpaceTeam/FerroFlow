@@ -7,7 +7,7 @@ use dashmap::DashMap;
 use liquidcan::{
     CanMessage, CanMessageId,
     payloads::{
-        CanDataType, CanDataValue, FieldGetResPayload, FieldRegistrationPayload, HeartbeatPayload,
+        CanDataType, CanDataValue, FieldGetResPayload, FieldRegistrationPayload,
         NodeInfoResPayload, ParameterSetConfirmationPayload, ParameterSetReqPayload,
         ParameterSetStatus, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
     },
@@ -436,10 +436,6 @@ impl<'a> NodeManager<'a> {
             });
 
         Ok(())
-    }
-
-    pub fn get_nodes(&self) -> &DashMap<u8, CanNode> {
-        &self.can_nodes
     }
 
     fn json_to_can_data_value(
