@@ -1,0 +1,11 @@
+can_bus_interfaces:
+  - can0
+
+heartbeat:
+  period: 1
+  backoff_multiplier: 2
+  max_period: 60
+  max_unanswered: 5
+
+# Leave empty to disable database logging.
+database_url: ""
