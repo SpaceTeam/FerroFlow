@@ -38,12 +38,7 @@ pub fn run_with_dependencies(
         println!("Starting node registration");
 
         nodes::spawn_can_msg_handler_thread(node_manager, event_dispatcher, scope);
-        nodes::spawn_heartbeat_thread(
-            node_manager,
-            std::time::Duration::from_secs(config.heartbeat_period),
-            event_dispatcher,
-            scope,
-        );
+        nodes::spawn_heartbeat_thread(node_manager, &config.heartbeat, event_dispatcher, scope);
 
         node_manager.start_node_registration();
 

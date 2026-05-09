@@ -32,6 +32,22 @@ ferroflow-vcan down vcan0
 
 ## Development
 
+### Runtime Configuration
+
+Ferroflow reads `config.yml` on startup. Heartbeat retries use `heartbeat_period` as the base interval and back off per node when heartbeat responses are missing.
+
+```yaml
+can_bus_interfaces:
+	- can0
+heartbeat_period: 1
+heartbeat_backoff_multiplier: 2
+heartbeat_max_period: 60
+heartbeat_max_unanswered: 5
+database_url: postgres://postgres:yourpassword@localhost:5432/ferroflow
+```
+
+With these values, healthy nodes get a 1s heartbeat cadence. After a missed response, retries wait 2s, 4s, 8s, and so on up to 60s. After 5 unanswered heartbeat requests, the node is removed and Ferroflow stops sending heartbeats to it.
+
 ### Running CI Checks
 
 The repository includes a CI script (`ci-rust.sh`) that runs all quality checks on the Rust implementation. This script is used both locally and in GitHub Actions
