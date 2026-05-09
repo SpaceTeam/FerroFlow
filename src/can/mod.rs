@@ -57,7 +57,15 @@ pub fn spawn_can_threads<'a>(
         scope.spawn(move || can_recv_thread(interface, socket, event_dispatcher, shutdown_rx));
     }
 
-    scope.spawn(move || can_send_thread(sockets, event_dispatcher));
+    let (sender, receiver) = mpsc::channel::<events::Event>();
+    let events = vec![
+        EventKind::SendCanMessage,
+        EventKind::RelayCanMessage,
+        EventKind::Shutdown,
+    ];
+    event_dispatcher.subscribe(sender, events, "CAN send thread");
+
+    scope.spawn(move || can_send_thread(sockets, receiver));
 
     Ok(())
 }
@@ -164,6 +172,7 @@ fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, event_dispatcher: &Ev
                         continue;
                     };
                     frame.set_id(can_id);
+                    frame.set_brs(true);
 
                     let frame = CanAnyFrame::Fd(frame);
 

@@ -357,6 +357,9 @@ impl<'a> NodeManager<'a> {
 
         Ok(())
     }
+    pub fn get_nodes(&self) -> &DashMap<u8, CanNode> {
+        &self.can_nodes
+    }
 
     pub fn handle_parameter_set_confirmation(
         &self,
