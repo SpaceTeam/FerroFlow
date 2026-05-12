@@ -332,13 +332,16 @@ impl<'a> NodeManager<'a> {
     pub fn dispatch_heartbeat_requests(&self) -> Result<()> {
         for node_entry in self.can_nodes.iter() {
             let node_id = *node_entry.key();
-            let next_heartbeat = node_entry
+            let mut latest_heartbeat_sent = node_entry
                 .latest_heartbeat_sent
-                .read()
-                .map_err(|error| anyhow!("RwLock was poisoned: {}", error))?
-                .as_ref()
-                .map(|(_, counter)| *counter + 1)
+                .write()
+                .map_err(|error| anyhow!("RwLock was poisoned: {}", error))?;
+
+            let next_heartbeat = latest_heartbeat_sent
+                .map(|(_, counter)| counter + 1)
                 .unwrap_or(0);
+
+            *latest_heartbeat_sent = Some((Utc::now(), next_heartbeat));
 
             self.event_dispatcher
                 .dispatch(events::Event::SendCanMessage {
