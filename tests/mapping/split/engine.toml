@@ -1,0 +1,10 @@
+[[mapping.EngineECU]]
+name = "throttle_state"
+type = "parameter"
+raw_field = "throttle_raw"
+value = { slope = 0.25, offset = 0.0, unit = "%" }
+logical = [
+    { range = { min = 100 }, value = "High", color = "#ff0000" },
+    { range = { min = 50, max = 100 }, value = "Normal" },
+    { range = { max = 50 }, value = "Low" },
+]

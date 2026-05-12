@@ -1,0 +1,5 @@
+[[rule]]
+include = ["**/mapping.toml", "**/mapping/**/*.toml", "**/mappings/**/*.toml"]
+
+[rule.schema]
+path = "./schemas/mapping.schema.json"

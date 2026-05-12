@@ -1,5 +1,6 @@
 # Ferroflow
-Ferroflow is the new control software for all Liquid Rocketry projects at the TU Wien Space Team. 
+
+Ferroflow is the new control software for all Liquid Rocketry projects at the TU Wien Space Team.
 It interfaces with our custom Engine Control Units ECUs, through our custom [LiquidCAN protocol](https://github.com/SpaceTeam/LiquidCAN/).
 On the other end, it provides a high-level API for our [ECUI](https://github.com/SpaceTeam/web_ecui_houbolt), which is the user interface for our ECUs.
 
@@ -10,33 +11,60 @@ On the other end, it provides a high-level API for our [ECUI](https://github.com
 Some integration tests talk to the ECUemulator over SocketCAN. For that you use a virtual CAN interface.
 
 ### Test helper: `ferroflow-vcan`
+
 For test environments, this repo provides a small helper binary that can be granted `CAP_NET_ADMIN` once via `setcap`.
 Integration tests will automatically use it (if it’s available on `PATH`) to create/delete `vcan` interfaces without sudo.
 
 Build the helper (feature-gated; not part of normal builds):
+
 ```bash
 cargo build --release --features test-vcan --bin ferroflow-vcan
 ```
+
 Put it on PATH (recommended for tests):
+
 ```bash
 install -m 0755 ./target/release/ferroflow-vcan ~/.local/bin/ferroflow-vcan
 sudo setcap cap_net_admin+ep ~/.local/bin/ferroflow-vcan
 ```
 
 Manual usage:
+
 ```bash
 ferroflow-vcan up vcan0
 ferroflow-vcan down vcan0
 ```
 
-
 ## Development
+
+### Mapping Configuration
+
+`mapping_path` in `config.yml` points to a directory containing `.toml` files, which are loaded in sorted order and validated together.
+
+Mappings are grouped by node name:
+
+```toml
+[[mapping.FuelECU]]
+name = "fuel_level"
+type = "telemetry"
+raw_field = "level_adc"
+value = { slope = 0.5, offset = 1.0, unit = "mAh" }
+
+logical = [
+    { range = { min = 100 }, value = "High", color = "#ff0000" },
+    { range = { min = 50, max = 100 }, value = "Normal" },
+    { range = { max = 50 }, value = "Low" },
+]
+```
+
+The repository includes [schemas/mapping.schema.json](schemas/mapping.schema.json) and [taplo.toml](taplo.toml) so Taplo-compatible editors, including VS Code with Even Better TOML, can validate mapping files before the application loads them. The schema is associated with `mapping.toml` files and TOML files under `mapping/` or `mappings/` directories.
 
 ### Running CI Checks
 
 The repository includes a CI script (`ci-rust.sh`) that runs all quality checks on the Rust implementation. This script is used both locally and in GitHub Actions
 
 **Run all checks:**
+
 ```bash
 ./ci-rust.sh
 # or explicitly
@@ -44,17 +72,20 @@ The repository includes a CI script (`ci-rust.sh`) that runs all quality checks 
 ```
 
 **Run individual checks:**
+
 ```bash
 ./ci-rust.sh build         # Build the project
 ./ci-rust.sh test          # Run tests
 ./ci-rust.sh fmt           # Check code formatting
 ./ci-rust.sh clippy        # Run clippy linter
 ```
+
 You can fix formatting or linter issues by adding the -fix suffix to the command. e.g: `./ci-rust.sh clippy-fix`
 
 ### Running `fmt` and `clippy` as a pre-commit hook
 
 A pre-commit hook script is available in `.githooks`, which executes the CI script with `fmt` and `clippy` only and without the `fix` option. To setup the hook, configure git to use the `.githooks` directory and make the `pre-commit` file executable.
+
 ```bash
 git config core.hooksPath .githooks
 chmod u+x .githooks/pre-commit
@@ -66,6 +97,7 @@ chmod u+x .githooks/pre-commit
 
 We use TimescaleDB, which is an extension of PostgreSQL optimized for time-series data. You can install it by following the instructions on the [TimescaleDB installation page](https://docs.timescale.com/install/latest/).
 Using docker is recommended for local development (if you already have another instance of postgres running, use e.g. `-p 5433:5432` instead of `-p 5432:5432`):
+
 ```bash
 docker run -d --name timescaledb -p 5432:5432 -e POSTGRES_PASSWORD=yourpassword timescale/timescaledb:latest-pg18
 ```
@@ -76,6 +108,7 @@ The project uses Diesel for database interactions. Diesel CLI is recommended for
 
 **Running Diesel CLI**
 Here's some common commands:
+
 ```bash
 export DATABASE_URL=postgres://postgres:yourpassword@localhost:5432/ferroflow # Set the database URL
 diesel setup # Set up the database
