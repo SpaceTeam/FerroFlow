@@ -47,13 +47,7 @@ pub fn spawn_heartbeat_thread<'a>(
                     ) {
                         eprintln!("Error dispatching heartbeat requests: {error:#}");
                     }
-
-                    next_heartbeat_at += period_duration;
-
-                    // edge case: if next_heartbeat_at is already in the past, skip to now.
-                    if next_heartbeat_at < Instant::now() {
-                        next_heartbeat_at = Instant::now();
-                    }
+                    next_heartbeat_at = Instant::now() + period_duration;
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
                 Ok(_) => {}
