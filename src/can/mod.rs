@@ -95,6 +95,7 @@ fn can_send_thread(
                         continue;
                     };
                     frame.set_id(can_id);
+                    frame.set_brs(true);
 
                     let frame = CanAnyFrame::Fd(frame);
 
