@@ -59,6 +59,7 @@ pub fn flatten_and_interpolate(seq: Sequence) -> Vec<TimedAction> {
 
             final_actions.extend(interpolated_actions);
         }
+
         last_param_states.insert(param_state.param.clone(), new_param_value);
         final_actions.push(timed_action);
     }
