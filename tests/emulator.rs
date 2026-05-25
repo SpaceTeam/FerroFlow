@@ -4,10 +4,12 @@ use crate::common::ShutdownGuard;
 use chrono::{DateTime, Utc};
 use ferro_flow::config::{Config, HeartbeatConfig};
 use ferro_flow::{events, nodes, run_with_dependencies};
-use liquidcan::payloads::CanDataType;
-use std::{io::Write, time::Instant};
+use liquidcan::{CanMessage, payloads::CanDataType};
+use std::{io::Write, sync::mpsc, time::Duration, time::Instant};
 use testcontainers::core::logs::LogFrame;
 use testcontainers::{GenericImage, ImageExt, runners::SyncRunner};
+
+const TEST_NODE_ID: u8 = 5;
 
 #[test]
 fn test_node_registration() {
@@ -180,16 +182,170 @@ fn test_telemetry_group_updates() {
     });
 }
 
+#[test]
+fn test_node_is_removed_when_heartbeat_responses_stop() {
+    let vcan_iface = common::unique_vcan_iface();
+    let _vcan = common::ensure_vcan(&vcan_iface);
+
+    let emulator_config = ecuemulator_test_config_toml(&vcan_iface);
+
+    let event_dispatcher = events::EventDispatcher::new();
+    let (tx, heartbeat_rx) = mpsc::channel();
+    event_dispatcher.subscribe(
+        tx,
+        vec![events::EventKind::SendCanMessage],
+        "heartbeat-test-listener",
+    );
+
+    let node_manager = nodes::NodeManager::new(&event_dispatcher);
+    let config = build_test_config_with_heartbeat(
+        &vcan_iface,
+        HeartbeatConfig {
+            period: 1,
+            backoff_multiplier: 2,
+            max_period: 4,
+            max_unanswered: 3,
+        },
+    );
+
+    std::thread::scope(|s| {
+        let _shutdown = ShutdownGuard {
+            event_dispatcher: &event_dispatcher,
+        };
+        s.spawn(|| {
+            run_with_dependencies(&event_dispatcher, &node_manager, config)
+                .expect("application should start with test config");
+        });
+        let ecuemulator_container = start_ecuemulator_container_with_config(&emulator_config);
+
+        wait_for_registered_node(&node_manager, Duration::from_secs(10));
+        drain_send_can_events(&heartbeat_rx);
+
+        ecuemulator_container
+            .stop_with_timeout(Some(0))
+            .expect("ecuemulator container should stop");
+        drain_send_can_events(&heartbeat_rx);
+
+        // first heartbeat at ~1s, then backoff to 2s, then 4s, then node removal after 3 unanswered heartbeats
+        let (first_heartbeat_at, first_counter) =
+            wait_for_heartbeat_request(&heartbeat_rx, Duration::from_secs(1100));
+        let (second_heartbeat_at, second_counter) =
+            wait_for_heartbeat_request(&heartbeat_rx, Duration::from_secs(2100));
+        let (third_heartbeat_at, third_counter) =
+            wait_for_heartbeat_request(&heartbeat_rx, Duration::from_secs(4100));
+
+        assert_eq!(
+            second_counter,
+            first_counter + 1,
+            "second unanswered heartbeat should increment the request counter"
+        );
+        assert_eq!(
+            third_counter,
+            first_counter + 2,
+            "third unanswered heartbeat should increment the request counter"
+        );
+        assert!(
+            second_heartbeat_at.duration_since(first_heartbeat_at) < Duration::from_millis(2100)
+                && second_heartbeat_at.duration_since(first_heartbeat_at)
+                    > Duration::from_millis(1900),
+            "second unanswered heartbeat should be sent after ~2s"
+        );
+
+        assert!(
+            third_heartbeat_at.duration_since(second_heartbeat_at) < Duration::from_millis(4100)
+                && third_heartbeat_at.duration_since(second_heartbeat_at)
+                    > Duration::from_millis(3900),
+            "third unanswered heartbeat should be sent after backoff multiplier is applied to the heartbeat period"
+        );
+
+        // Node is removed after one regular period, as the number of unanswered heartbeats has reached the max_unanswered threshold
+        wait_for_node_removal(&node_manager, TEST_NODE_ID, Duration::from_secs(1));
+    });
+}
+
 fn build_test_config(can_iface: &str) -> Config {
-    Config {
-        can_bus_interfaces: vec![can_iface.to_string()],
-        heartbeat: HeartbeatConfig {
+    build_test_config_with_heartbeat(
+        can_iface,
+        HeartbeatConfig {
             period: 1,
             backoff_multiplier: 2,
             max_period: 10,
             max_unanswered: 3,
         },
+    )
+}
+
+fn build_test_config_with_heartbeat(can_iface: &str, heartbeat: HeartbeatConfig) -> Config {
+    Config {
+        can_bus_interfaces: vec![can_iface.to_string()],
+        heartbeat,
         database_url: "".to_string(),
+    }
+}
+
+fn wait_for_registered_node(node_manager: &nodes::NodeManager<'_>, timeout: Duration) {
+    let start_time = Instant::now();
+
+    loop {
+        if node_manager.get_nodes().len() == 1 {
+            return;
+        }
+        if start_time.elapsed() > timeout {
+            panic!("ECUEmulator did not register within timeout");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn wait_for_node_removal(node_manager: &nodes::NodeManager<'_>, node_id: u8, expected: Duration) {
+    let start_time = Instant::now();
+    let max_diff = Duration::from_millis(100);
+
+    loop {
+        if node_manager.get_nodes().get(&node_id).is_none() {
+            if start_time.elapsed() < expected - max_diff {
+                panic!("node {node_id} was removed too early after unanswered heartbeats");
+            }
+            return;
+        }
+        if start_time.elapsed() > expected + max_diff {
+            panic!(
+                "node {node_id} was not removed within expected time after unanswered heartbeats"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn drain_send_can_events(rx: &mpsc::Receiver<events::Event>) {
+    while rx.try_recv().is_ok() {}
+}
+
+fn wait_for_heartbeat_request(
+    rx: &mpsc::Receiver<events::Event>,
+    timeout: Duration,
+) -> (Instant, u32) {
+    let start_time = Instant::now();
+
+    loop {
+        let elapsed = start_time.elapsed();
+        if elapsed >= timeout {
+            panic!("heartbeat request was not dispatched within timeout");
+        }
+
+        match rx.recv_timeout(timeout - elapsed) {
+            Ok(events::Event::SendCanMessage {
+                receiver_node_id: TEST_NODE_ID,
+                message: CanMessage::HeartbeatReq { payload },
+            }) => return (Instant::now(), payload.counter),
+            Ok(_) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("heartbeat request was not dispatched within timeout");
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("heartbeat test listener disconnected");
+            }
+        }
     }
 }
 
