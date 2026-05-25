@@ -1,4 +1,4 @@
-##:schema ../../sequences/_schema.json
+#:schema true
 
 name = "Test Sequence Invalid: interpolations interval"
 steps = []

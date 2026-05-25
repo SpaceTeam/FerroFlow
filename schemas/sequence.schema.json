@@ -1,8 +1,12 @@
 {
-    "$schema": "http://json-schema.org/draft-07/schema",
+    "$schema": "http://json-schema.org/draft/2020-12/schema",
+    "$id": "https://spaceteam.at/ferroflow/schemas/sequence.schema.json",
+    "title": "FerroFlow Sequence",
+    "description": "TOML schema for FerroFlow sequence files.",
     "$defs": {
         "setParam": {
-            "type": "object",
+            "type": "object", 
+            "description": "A parameter value to set at a specific.",
             "additionalProperties": false,
             "required": [
                 "timestamp",
@@ -11,18 +15,22 @@
             ],
             "properties": {
                 "timestamp": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "Timestamp (seconds) relative to the parent step.",
+                    "minimum": 0
                 },
                 "param": {
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "Logical value of the parameter (see parameter mapping)."
                 }
             }
         },
-        "holdcondition": {
+        "holdCondition": {
             "type": "object",
+            "description": "A hold condition that gets evaluated at a specific timestamp.",
             "additionalProperties": false,
             "required": [
                 "field",
@@ -41,15 +49,16 @@
                         "less_eq",
                         "greater",
                         "greater_eq"
-                    ]
+                    ],
+                    "description": "Comparison operator for the conditional hold. Will be evaluated like `field <comparison> value`, so the field value is on the left and the provided value is on the right."
                 },
                 "value": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "Logical value of the field (see parameter mapping)."
                 }
             }
         }
     },
-    "title": "FerroFlow-Sequence",
     "type": "object",
     "additionalProperties": false,
     "required": [
@@ -58,14 +67,12 @@
         "steps"
     ],
     "properties": {
-        "$schema": {
-            "type": "string"
-        },
         "name": {
             "type": "string"
         },
         "globals": {
             "type": "object",
+            "description": "Global settings for the sequence",
             "additionalProperties": false,
             "required": [
                 "start_time",
@@ -75,17 +82,22 @@
             ],
             "properties": {
                 "start_time": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "Start time (seconds) of the sequence, <= 0",
+                    "maximum": 0
                 },
                 "end_time": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "End time (seconds) of the sequence"
                 },
                 "interpolation_interval": {
                     "type": "number",
+                    "description": "The frequency (seconds) at which interpolated values are recalculated and sent",
                     "exclusiveMinimum": 0
                 },
                 "interpolations": {
                     "type": "object",
+                    "description": "Mappings, how the param values should be interpolated",
                     "patternProperties": {
                         "^.+$": {
                             "type": "string",
@@ -115,16 +127,19 @@
                                 "type": "string"
                             },
                             "description": {
-                                "type": "string"
+                                "type": "string",
+                                "description": "Optional."
                             },
                             "timestamp": {
-                                "type": "number"
+                                "type": "number",
+                                "description": "A timestamp (seconds), when to execute the step."
                             },
                             "hold": {
                                 "type": "array",
+                                "description": "A list of hold conditions. The sequence holds, when all conditions are satisfied. The sequence can then be manually resumed.",
                                 "minItems": 1,
                                 "items": {
-                                    "$ref": "#/$defs/holdcondition"
+                                    "$ref": "#/$defs/holdCondition"
                                 }
                             }
                         }
@@ -142,13 +157,16 @@
                                 "type": "string"
                             },
                             "description": {
-                                "type": "string"
+                                "type": "string",
+                                "description": "Optional."
                             },
                             "timestamp": {
-                                "type": "number"
+                                "type": "number",
+                                "description": "A timestamp (seconds), when to execute the step."
                             },
                             "hold": {
                                 "type": "string",
+                                "description": "A signal, that the sequence unconditionally holds here. The value must be `always`. The sequence can then be manually resumed.",
                                 "const": "always"
                             }
                         }
@@ -166,13 +184,16 @@
                                 "type": "string"
                             },
                             "description": {
-                                "type": "string"
+                                "type": "string",
+                                "description": "Optional."
                             },
                             "timestamp": {
-                                "type": "number"
+                                "type": "number",
+                                "description": "A timestamp (seconds), when to execute the step."
                             },
                             "set_params": {
                                 "type": "array",
+                                "description": "A list of `SetParam` actions.",
                                 "minItems": 1,
                                 "items": {
                                     "$ref": "#/$defs/setParam"

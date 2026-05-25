@@ -1,5 +1,3 @@
-#:schema ../../sequences/_schema.json
-
 name = "Test Sequence Invalid: Action times"
 
 [globals]
