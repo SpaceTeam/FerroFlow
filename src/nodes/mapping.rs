@@ -161,11 +161,7 @@ impl Mapping {
             })?;
 
             for (node, fields) in mapping.mapping {
-                combined
-                    .mapping
-                    .entry(node)
-                    .or_default()
-                    .extend(fields.into_iter());
+                combined.mapping.entry(node).or_default().extend(fields);
             }
         }
 
