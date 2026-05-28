@@ -51,7 +51,7 @@ raw_field = "level_adc"
 value = { slope = 0.5, offset = 1.0, unit = "mAh" }
 
 logical = [
-    { range = { min = 100 }, value = "High", color = "#ff0000" },
+    { range = { min = 100 }, value = "High" },
     { range = { min = 50, max = 100 }, value = "Normal" },
     { range = { max = 50 }, value = "Low" },
 ]

@@ -590,7 +590,6 @@ mod tests {
             .get_logical_value("tank_pressure")
             .expect("logical value should be available");
         assert_eq!(logical.value, Value::String("High".to_string()));
-        assert_eq!(logical.color, Some("#ff0000".to_string()));
     }
 
     #[test]
@@ -669,7 +668,6 @@ value = { slope = 0.5, offset = 1.0, unit = "bar" }
 [[mapping.ECU.logical]]
 range = { min = 100 }
 value = "High"
-color = "#ff0000"
 
 [[mapping.ECU.logical]]
 range = { max = 100 }

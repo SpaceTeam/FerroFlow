@@ -48,8 +48,6 @@ impl Default for ValueParams {
 pub struct LogicalRule {
     pub range: LogicalRange,
     pub value: Value,
-    #[serde(default)]
-    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -88,7 +86,6 @@ pub enum FieldType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogicalValue {
     pub value: Value,
-    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -353,7 +350,6 @@ impl MappingEntry {
             .find(|rule| rule.matches(mapped_value))
             .map(|rule| LogicalValue {
                 value: rule.value.clone(),
-                color: rule.color.clone(),
             })
     }
 }
@@ -509,7 +505,6 @@ value = { slope = 0.5, offset = 1.0, unit = "bar" }
 [[mapping.ECU.logical]]
 range = { min = 100 }
 value = "High"
-color = "#ff0000"
 
 [[mapping.ECU.logical]]
 range = { max = 100 }
@@ -533,7 +528,6 @@ value = "Normal"
             lookup.mapping_entry.logical_value(mapped.value),
             Some(LogicalValue {
                 value: Value::String("High".to_string()),
-                color: Some("#ff0000".to_string()),
             })
         );
     }

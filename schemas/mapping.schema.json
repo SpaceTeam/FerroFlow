@@ -88,10 +88,6 @@
         },
         "value": {
           "description": "Logical value returned when the mapped numeric value is inside the range."
-        },
-        "color": {
-          "type": "string",
-          "description": "Optional display color, commonly a hex color such as #ff0000."
         }
       }
     },

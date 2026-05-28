@@ -9,7 +9,6 @@ value.offset = 1.0
 [[mapping.node1.logical]]
 range = { min = 100 }
 value = "High"
-color = "#ff0000"
 
 [[mapping.node1.logical]]
 range = { min = 50, max = 100 }
@@ -30,7 +29,7 @@ raw_field = "field2"
 value = { slope = 0.5, offset = 1.0, unit = "mAh" }
 
 logical = [
-    { range = { min = 100 }, value = "High", color = "#ff0000" },
+    { range = { min = 100 }, value = "High" },
     { range = { min = 50, max = 100 }, value = "Normal" },
     { range = { max = 50 }, value = "Low" },
 ]
