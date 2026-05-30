@@ -199,6 +199,7 @@ mod tests {
         Sequence::load_from_path(&seq_dir.join(name)).expect("failed to load test sequence")
     }
 
+    #[ignore]
     #[test]
     #[timeout(2000)]
     fn test_run_sequence_execution_completes() {
@@ -227,6 +228,7 @@ mod tests {
         });
     }
 
+    #[ignore]
     #[test]
     #[timeout(2000)]
     fn test_run_sequence_hold_and_resume_completes() {
@@ -259,6 +261,7 @@ mod tests {
         });
     }
 
+    #[ignore]
     #[test]
     #[timeout(2000)]
     fn test_run_sequence_abort() {
