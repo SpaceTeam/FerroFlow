@@ -20,7 +20,7 @@ pub fn spawn_sequence_runner_thread<'scope>(
     scope.spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel::<events::Event>();
 
-        let events = vec![EventKind::Sequence];
+        let events = vec![EventKind::Sequence, EventKind::Shutdown];
         event_dispatcher.subscribe(tx, events, "Sequence Runner thread");
 
         let mut sequence_runner = SequenceRunner::new(node_manager, scope);
