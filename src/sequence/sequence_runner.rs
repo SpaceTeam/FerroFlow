@@ -1,6 +1,5 @@
 use anyhow::{Result, anyhow};
 use std::{
-    panic,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
     thread,
     time::{Duration, Instant},
@@ -30,7 +29,6 @@ pub enum SequenceCmd {
 pub enum SequenceRunError {
     Aborted,
     Shutdown,
-    Panicked,
 }
 
 pub struct SequenceRunner<'scope, 'env> {
@@ -62,7 +60,6 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
         let event_dispatcher = self.event_dispatcher;
 
         let thread_handle = self.scope.spawn(move || {
-            let panic_result = panic::catch_unwind( ||  {
                 let seq_name = seq.name.clone();
                 let abort_seq_name = abort_seq.name.clone();
 
@@ -76,16 +73,6 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
                     let _ = Self::execute_actions(abort_schedule, &controller_rx, event_dispatcher);
                 }
                 result
-            });
-
-            match panic_result {
-                Ok(sequence_result) => sequence_result,
-                Err(err) => {
-                    // TODO: add logging to the frontend
-                    eprintln!("Sequence Runner thread panicked with error '{:?}'", err);
-                    Err(SequenceRunError::Panicked)
-                }
-            }
         });
 
         self.last_sequence_handle = Some(SequenceHandle {
