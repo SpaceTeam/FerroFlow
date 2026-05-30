@@ -8,7 +8,30 @@ Ferroflow supports automated sequences for parameter changes and holds.
 See the [Sequences README](sequences/README.md) for more information.
 
 # Setup
-TODO
+
+## Integration tests: SocketCAN / vcan
+
+Some integration tests talk to the ECUemulator over SocketCAN. For that you use a virtual CAN interface.
+
+### Test helper: `ferroflow-vcan`
+For test environments, this repo provides a small helper binary that can be granted `CAP_NET_ADMIN` once via `setcap`.
+Integration tests will automatically use it (if it’s available on `PATH`) to create/delete `vcan` interfaces without sudo.
+
+Build the helper (feature-gated; not part of normal builds):
+```bash
+cargo build --release --features test-vcan --bin ferroflow-vcan
+```
+Put it on PATH (recommended for tests):
+```bash
+install -m 0755 ./target/release/ferroflow-vcan ~/.local/bin/ferroflow-vcan
+sudo setcap cap_net_admin+ep ~/.local/bin/ferroflow-vcan
+```
+
+Manual usage:
+```bash
+ferroflow-vcan up vcan0
+ferroflow-vcan down vcan0
+```
 
 
 ## Development
@@ -32,6 +55,14 @@ The repository includes a CI script (`ci-rust.sh`) that runs all quality checks 
 ./ci-rust.sh clippy        # Run clippy linter
 ```
 You can fix formatting or linter issues by adding the -fix suffix to the command. e.g: `./ci-rust.sh clippy-fix`
+
+### Running `fmt` and `clippy` as a pre-commit hook
+
+A pre-commit hook script is available in `.githooks`, which executes the CI script with `fmt` and `clippy` only and without the `fix` option. To setup the hook, configure git to use the `.githooks` directory and make the `pre-commit` file executable.
+```bash
+git config core.hooksPath .githooks
+chmod u+x .githooks/pre-commit
+```
 
 ### Database & Diesel
 

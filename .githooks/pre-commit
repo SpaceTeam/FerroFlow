@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+# PRE-COMMIT HOOK
+#
+# checks for:
+#   - formatting
+#   - clippy
+
+SCRIPT_DIR="$(git rev-parse --show-toplevel)"
+CI_SCRIPT="$SCRIPT_DIR/ci-rust.sh"
+
+if [ ! -f "$CI_SCRIPT" ]; then
+    echo "Error: ci-rust.sh not found at $CI_SCRIPT"
+    exit 1
+fi
+
+if [ ! -x "$CI_SCRIPT" ]; then
+    chmod u+x "$CI_SCRIPT"
+fi
+
+echo "Running pre-commit checks..."
+echo ""
+
+# Run fmt check
+"$CI_SCRIPT" fmt
+FMT_EXIT=$?
+
+if [ $FMT_EXIT -ne 0 ]; then
+    echo ""
+    echo ""
+    echo "Commit aborted."
+    echo "Run './ci-rust.sh fmt-fix' to auto-fix issues."
+    exit 1
+fi
+
+# Run clippy check
+"$CI_SCRIPT" clippy
+CLIPPY_EXIT=$?
+
+if [ $CLIPPY_EXIT -ne 0 ]; then
+    echo ""
+    echo ""
+    echo "Commit aborted."
+    echo "Run './ci-rust.sh clippy-fix' to auto-fix issues."
+    exit 1
+fi
+
+echo ""
+echo "All pre-commit checks passed."
+exit 0

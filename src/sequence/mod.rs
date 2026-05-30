@@ -5,7 +5,10 @@ mod sequence_definition;
 mod sequence_runner;
 mod sequence_validation;
 
-use crate::{events, nodes};
+use crate::{
+    events::{self, EventKind},
+    nodes,
+};
 pub use sequence_definition::Sequence;
 use sequence_runner::{SequenceCmd, SequenceRunner};
 
@@ -16,7 +19,10 @@ pub fn spawn_sequence_runner_thread<'scope>(
 ) {
     scope.spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel::<events::Event>();
-        event_dispatcher.subscribe(tx, "Sequence Runner thread");
+
+        let events = vec![EventKind::Sequence];
+        event_dispatcher.subscribe(tx, events, "Sequence Runner thread");
+
         let mut sequence_runner = SequenceRunner::new(node_manager, scope);
 
         while let Ok(event) = rx.recv() {
