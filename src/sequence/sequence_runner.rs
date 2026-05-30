@@ -61,6 +61,9 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
 
         let thread_handle = self.scope.spawn(move || {
             let seq_name = seq.name.clone();
+            let _panic_guard = SequencePanicGuard {
+                seq_name: seq_name.clone(),
+            };
             let abort_seq_name = abort_seq.name.clone();
 
             let schedule = flatten_and_interpolate(seq);
@@ -70,7 +73,7 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
             if let Err(SequenceRunError::Aborted) = &result {
                 // TODO: add logging to the frontend
                 eprintln!("Execution of sequence '{seq_name}' was aborted, now running abort sequence '{abort_seq_name}'");
-                let _ = Self::execute_actions(abort_schedule, &controller_rx, node_manager);
+                return Self::execute_actions(abort_schedule, &controller_rx, node_manager);
             }
             result
         });
@@ -180,6 +183,21 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
                 Ok(SequenceCmd::Shutdown) => return Err(SequenceRunError::Shutdown), // server shutdown
                 Err(_) => return Err(SequenceRunError::Shutdown), // The caller dropped the handle without explicitly calling cancel(), shutdown
             }
+        }
+    }
+}
+
+struct SequencePanicGuard {
+    seq_name: String,
+}
+
+impl Drop for SequencePanicGuard {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            eprintln!(
+                "Sequence runner thread for sequence '{}' panicked!",
+                self.seq_name
+            );
         }
     }
 }
