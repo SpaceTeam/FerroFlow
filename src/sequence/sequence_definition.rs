@@ -1,10 +1,10 @@
-#![allow(unused)]
-
 use anyhow::{Context, Result};
 use std::{collections::HashMap, path::Path, time::Duration};
 
 use config::{Config, File};
 use serde::{Deserialize, Deserializer, de};
+
+use crate::nodes;
 
 pub type TimestampSec = f64;
 
@@ -24,7 +24,9 @@ impl Sequence {
             .try_deserialize()
             .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
 
-        sequence.validate()?;
+        sequence
+            .validate()
+            .with_context(|| format!("Failed to validate sequence from {}", path.display()))?;
         Ok(sequence)
     }
 }
@@ -166,16 +168,40 @@ pub struct ParamState {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct HoldCondition {
-    field: String,
-    is: FieldComparison,
-    value: f64,
+    pub field: String,
+    #[serde(rename = "is")]
+    pub comparison: FieldComparison,
+    pub value: f64,
 }
 
 impl HoldCondition {
-    pub fn evaluate(&self) -> bool {
-        // TODO: evaluate condition if it's true based on the actual field values
-        todo!("evaluate condition if it's true based on the actual field values")
+    pub fn evaluate(&self, node_manager: &nodes::NodeManager) -> bool {
+        let Some(actual) = node_manager.get_mapped_value(&self.field) else {
+            eprintln!("Value for field '{}' missing", &self.field);
+            return false;
+        };
+        let eps = 1e-6;
+        match self.comparison {
+            FieldComparison::Equal => f64_approx_eq(actual.value, self.value, eps),
+            FieldComparison::NotEq => !f64_approx_eq(actual.value, self.value, eps),
+            FieldComparison::Less => {
+                actual.value < self.value && !f64_approx_eq(actual.value, self.value, eps)
+            }
+            FieldComparison::LessEq => {
+                actual.value < self.value || f64_approx_eq(actual.value, self.value, eps)
+            }
+            FieldComparison::Greater => {
+                actual.value > self.value && !f64_approx_eq(actual.value, self.value, eps)
+            }
+            FieldComparison::GreaterEq => {
+                actual.value > self.value || f64_approx_eq(actual.value, self.value, eps)
+            }
+        }
     }
+}
+
+fn f64_approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
+    (if a > b { a - b } else { b - a }) <= epsilon
 }
 
 #[derive(Debug, Deserialize, Clone)]

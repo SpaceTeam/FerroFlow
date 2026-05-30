@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    events::{self, EventDispatcher},
+    nodes,
     sequence::{
         sequence_builder::flatten_and_interpolate,
         sequence_definition::{Action, HoldMode, Sequence, TimedAction},
@@ -33,18 +33,18 @@ pub enum SequenceRunError {
 
 pub struct SequenceRunner<'scope, 'env> {
     last_sequence_handle: Option<SequenceHandle<'scope>>,
-    event_dispatcher: &'scope events::EventDispatcher,
+    node_manager: &'scope nodes::NodeManager<'scope>,
     scope: &'scope thread::Scope<'scope, 'env>,
 }
 
 impl<'scope, 'env> SequenceRunner<'scope, 'env> {
     pub fn new(
-        event_dispatcher: &'scope events::EventDispatcher,
+        node_manager: &'scope nodes::NodeManager,
         scope: &'scope thread::Scope<'scope, 'env>,
     ) -> Self {
         Self {
             last_sequence_handle: None,
-            event_dispatcher,
+            node_manager,
             scope,
         }
     }
@@ -57,22 +57,22 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
             return Err(anyhow!("another sequence is still running"));
         }
         let (controller_tx, controller_rx) = mpsc::channel();
-        let event_dispatcher = self.event_dispatcher;
+        let node_manager = self.node_manager;
 
         let thread_handle = self.scope.spawn(move || {
-                let seq_name = seq.name.clone();
-                let abort_seq_name = abort_seq.name.clone();
+            let seq_name = seq.name.clone();
+            let abort_seq_name = abort_seq.name.clone();
 
-                let schedule = flatten_and_interpolate(seq);
-                let abort_schedule = flatten_and_interpolate(abort_seq);
-                let result = Self::execute_actions(schedule, &controller_rx, event_dispatcher);
+            let schedule = flatten_and_interpolate(seq);
+            let abort_schedule = flatten_and_interpolate(abort_seq);
+            let result = Self::execute_actions(schedule, &controller_rx, node_manager);
 
-                if let Err(SequenceRunError::Aborted) = &result {
-                    // TODO: add logging to the frontend
-                    eprintln!("Execution of sequence '{seq_name}' was aborted, now running abort sequence '{abort_seq_name}'");
-                    let _ = Self::execute_actions(abort_schedule, &controller_rx, event_dispatcher);
-                }
-                result
+            if let Err(SequenceRunError::Aborted) = &result {
+                // TODO: add logging to the frontend
+                eprintln!("Execution of sequence '{seq_name}' was aborted, now running abort sequence '{abort_seq_name}'");
+                let _ = Self::execute_actions(abort_schedule, &controller_rx, node_manager);
+            }
+            result
         });
 
         self.last_sequence_handle = Some(SequenceHandle {
@@ -107,7 +107,7 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
     fn execute_actions(
         schedule: Vec<TimedAction>,
         controller: &Receiver<SequenceCmd>,
-        #[allow(unused)] event_dispatcher: &EventDispatcher,
+        node_manager: &nodes::NodeManager,
     ) -> Result<(), SequenceRunError> {
         let origin = Instant::now();
         let mut pause_offset = Duration::ZERO;
@@ -140,9 +140,8 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
                 Action::Hold(mode) => {
                     let should_hold = match mode {
                         HoldMode::Always => true,
-                        // TODO: implement conditions evaluation
                         HoldMode::Conditional(conditions) => {
-                            conditions.iter().all(|cond| cond.evaluate())
+                            conditions.iter().all(|cond| cond.evaluate(node_manager))
                         }
                     };
 
@@ -152,18 +151,15 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
                     }
                 }
 
-                Action::SetParam(_param_value) => {
-                    // TODO: send can message with correct data
-                    // event_dispatcher.dispatch(events::Event::SendCanMessage {
-                    //     receiver_node_id: todo!(),
-                    //     #[allow(unreachable_code)]
-                    //     message: liquidcan::CanMessage::ParameterSetReq {
-                    //         payload: liquidcan::payloads::ParameterSetReqPayload {
-                    //             parameter_id: todo!(),
-                    //             value: todo!(),
-                    //         },
-                    //     },
-                    // });
+                Action::SetParam(param_state) => {
+                    let result =
+                        node_manager.set_mapped_value(&param_state.param, param_state.value);
+                    if let Err(err) = result {
+                        eprintln!(
+                            "Failed to set value '{}' for param '{}': {:#?}",
+                            &param_state.value, &param_state.param, err
+                        );
+                    }
                 }
             }
         }
@@ -190,6 +186,8 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
 
 #[cfg(test)]
 mod tests {
+    use crate::events;
+
     use super::*;
     use ntest::timeout;
     use std::{path::Path, thread, time::Duration};
@@ -204,10 +202,11 @@ mod tests {
     #[test]
     #[timeout(2000)]
     fn test_run_sequence_execution_completes() {
-        let dispatcher = events::EventDispatcher::new();
+        let event_dispatcher = events::EventDispatcher::new();
+        let node_manager = nodes::NodeManager::new(&event_dispatcher);
 
         thread::scope(|scope| {
-            let mut runner = SequenceRunner::new(&dispatcher, scope);
+            let mut runner = SequenceRunner::new(&node_manager, scope);
 
             let seq = load_seq("valid_set_param.toml");
             let abort_seq = load_seq("abort.toml");
@@ -231,10 +230,11 @@ mod tests {
     #[test]
     #[timeout(2000)]
     fn test_run_sequence_hold_and_resume_completes() {
-        let dispatcher = events::EventDispatcher::new();
+        let event_dispatcher = events::EventDispatcher::new();
+        let node_manager = nodes::NodeManager::new(&event_dispatcher);
 
         thread::scope(|scope| {
-            let mut runner = SequenceRunner::new(&dispatcher, scope);
+            let mut runner = SequenceRunner::new(&node_manager, scope);
 
             let seq = load_seq("valid_hold.toml");
             let abort_seq = load_seq("abort.toml");
@@ -262,10 +262,11 @@ mod tests {
     #[test]
     #[timeout(2000)]
     fn test_run_sequence_abort() {
-        let dispatcher = events::EventDispatcher::new();
+        let event_dispatcher = events::EventDispatcher::new();
+        let node_manager = nodes::NodeManager::new(&event_dispatcher);
 
         thread::scope(|scope| {
-            let mut runner = SequenceRunner::new(&dispatcher, scope);
+            let mut runner = SequenceRunner::new(&node_manager, scope);
 
             let seq = load_seq("valid_set_param.toml");
             let abort_seq = load_seq("abort.toml");

@@ -22,7 +22,7 @@ fn main() -> Result<()> {
             &event_dispatcher,
             scope,
         );
-        sequence::spawn_sequence_runner_thread(&event_dispatcher, scope);
+        sequence::spawn_sequence_runner_thread(&node_manager, &event_dispatcher, scope);
 
         Ok(())
     });

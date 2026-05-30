@@ -24,7 +24,24 @@ pub struct NodeManager<'a> {
     event_dispatcher: &'a events::EventDispatcher,
 }
 
+// TODO: remove
+#[derive(Debug, Clone, PartialEq)]
+pub struct MappedValue {
+    pub value: f64,
+    pub unit: String,
+}
+
 impl<'a> NodeManager<'a> {
+    pub fn get_mapped_value(&self, _mapped_name: &str) -> Option<MappedValue> {
+        todo!("Replace stub with actual method implementation")
+    }
+    pub fn try_get_mapped_value(&self, _mapped_name: &str) -> Result<Option<MappedValue>> {
+        todo!("Replace stub with actual method implementation")
+    }
+    pub fn set_mapped_value(&self, _mapped_name: &str, _mapped_value: f64) -> Result<()> {
+        todo!("Replace stub with actual method implementation")
+    }
+
     pub fn new(event_dispatcher: &'a events::EventDispatcher) -> Self {
         Self {
             can_nodes: DashMap::new(),
