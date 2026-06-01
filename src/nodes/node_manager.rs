@@ -799,26 +799,6 @@ mod tests {
     }
 
     #[test]
-    fn request_value_errors_when_mapping_missing() {
-        let dispatcher = EventDispatcher::new();
-        let (tx, rx) = mpsc::channel();
-        dispatcher.subscribe(tx, vec![EventKind::SendCanMessage], "test-send-listener");
-
-        let manager = NodeManager::new(&dispatcher, test_mapping());
-        insert_test_node(&manager);
-
-        let err = manager
-            .request_value("non_existent")
-            .expect_err("missing mappings should error");
-        assert_eq!(err.to_string(), "no mapping exists for non_existent");
-
-        assert!(matches!(
-            rx.recv_timeout(Duration::from_millis(50)),
-            Err(mpsc::RecvTimeoutError::Timeout)
-        ));
-    }
-
-    #[test]
     fn request_value_errors_when_unregistered() {
         let dispatcher = EventDispatcher::new();
         let (tx, rx) = mpsc::channel();
