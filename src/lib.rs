@@ -31,6 +31,7 @@ pub fn run_with_dependencies(
 
     let _ = std::thread::scope::<'_, _, anyhow::Result<()>>(|scope| {
         can::spawn_can_threads(interfaces.as_slice(), event_dispatcher, scope)?;
+        sequence::spawn_sequence_runner_thread(node_manager, event_dispatcher, scope);
 
         if !config.database_url.is_empty() {
             db::spawn_logging_worker(config.database_url.to_string(), event_dispatcher, scope)?;

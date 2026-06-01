@@ -3,6 +3,10 @@ Ferroflow is the new control software for all Liquid Rocketry projects at the TU
 It interfaces with our custom Engine Control Units ECUs, through our custom [LiquidCAN protocol](https://github.com/SpaceTeam/LiquidCAN/).
 On the other end, it provides a high-level API for our [ECUI](https://github.com/SpaceTeam/web_ecui_houbolt), which is the user interface for our ECUs.
 
+## Sequences
+Ferroflow supports automated sequences for parameter changes and holds. 
+See the [Sequences README](sequences/README.md) for more information.
+
 # Setup
 
 ## Integration tests: SocketCAN / vcan
