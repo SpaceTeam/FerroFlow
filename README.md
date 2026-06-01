@@ -36,6 +36,10 @@ ferroflow-vcan down vcan0
 
 ## Development
 
+### Runtime Configuration
+
+Ferroflow reads `config.yml` on startup. An example can be found at `config.example.yml`.
+
 ### Running CI Checks
 
 The repository includes a CI script (`ci-rust.sh`) that runs all quality checks on the Rust implementation. This script is used both locally and in GitHub Actions
