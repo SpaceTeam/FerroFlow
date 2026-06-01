@@ -470,6 +470,8 @@ impl<'a> NodeManager<'a> {
     }
 
     /// Writes a raw CAN value to a mapped parameter field.
+    ///
+    /// The value is sent as a `ParameterSetReq`.
     pub fn set_raw_value(&self, mapped_name: &str, raw_value: CanDataValue) -> Result<()> {
         let (mapping_lookup, target) = self.resolve_mapping_by_name(mapped_name)?;
 
@@ -590,6 +592,30 @@ mod tests {
             .get_logical_value("tank_pressure")
             .expect("logical value should be available");
         assert_eq!(logical.value, Value::String("High".to_string()));
+
+        let non_existant_mapped = manager.try_get_mapped_value("non_existent");
+        assert!(
+            non_existant_mapped
+                .is_err_and(|e| { e.to_string() == "no mapping exists for non_existent" })
+        );
+
+        let non_existant_logical = manager.try_get_logical_value("non_existent");
+        assert!(
+            non_existant_logical
+                .is_err_and(|e| { e.to_string() == "no mapping exists for non_existent" })
+        );
+
+        let non_existant_raw = manager.try_get_raw_value("non_existent");
+        assert!(
+            non_existant_raw
+                .is_err_and(|e| { e.to_string() == "no mapping exists for non_existent" })
+        );
+
+        let non_registered_mapped = manager.try_get_mapped_value("tank_temp");
+        assert!(
+            non_registered_mapped
+                .is_err_and(|e| { e.to_string() == "mapped field tank_temp is not registered" })
+        );
     }
 
     #[test]
@@ -677,6 +703,12 @@ value = "Normal"
 name = "valve_opening"
 type = "parameter"
 raw_field = "valve_raw"
+value = { slope = 0.5, offset = 10.0, unit = "%" }
+
+[[mapping.ECU]]
+name = "tank_temp"
+type = "telemetry"
+raw_field = "temp_adc"
 value = { slope = 0.5, offset = 10.0, unit = "%" }
 "##,
         )
