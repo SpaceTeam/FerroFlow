@@ -483,6 +483,7 @@ where
 mod tests {
     use std::{fs, path::PathBuf};
 
+    use chrono::Utc;
     use liquidcan::payloads::{CanDataType, CanDataValue};
     use toml::Value;
 
@@ -526,6 +527,499 @@ value = "Normal"
                 value: Value::String("High".to_string()),
             })
         );
+    }
+
+    #[test]
+    fn rejects_empty_node_name() {
+        let error = Mapping::parse_mapping(
+            r#"
+[mapping]
+"   " = [{ name = "x", type = "telemetry", raw_field = "f" }]
+"#,
+        )
+        .expect_err("empty node name should fail validation");
+
+        assert!(format!("{error:#}").contains("empty node name"));
+    }
+
+    #[test]
+    fn rejects_empty_mapping_name() {
+        let error = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = ""
+type = "telemetry"
+raw_field = "field"
+"#,
+        )
+        .expect_err("empty mapping name should fail validation");
+
+        assert!(format!("{error:#}").contains("mapping name must be non-empty"));
+    }
+
+    #[test]
+    fn rejects_empty_raw_field() {
+        let error = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "telemetry"
+raw_field = ""
+"#,
+        )
+        .expect_err("empty raw_field should fail validation");
+
+        assert!(format!("{error:#}").contains("has an empty raw_field"));
+    }
+
+    #[test]
+    fn rejects_zero_slope() {
+        let error = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "telemetry"
+raw_field = "f"
+value = { slope = 0.0, offset = 0.0 }
+"#,
+        )
+        .expect_err("zero slope should fail validation");
+
+        assert!(format!("{error:#}").contains("slope of zero"));
+    }
+
+    #[test]
+    fn rejects_non_finite_slope() {
+        let mapping = Mapping {
+            mapping: [(
+                "ECU".to_string(),
+                vec![super::MappingEntry {
+                    name: "x".to_string(),
+                    field_type: super::FieldType::Telemetry,
+                    raw_field: "f".to_string(),
+                    value: super::ValueParams {
+                        slope: f64::INFINITY,
+                        offset: 0.0,
+                        unit: "".to_string(),
+                    },
+                    logical: vec![],
+                }],
+            )]
+            .into_iter()
+            .collect(),
+        };
+
+        let error = mapping
+            .validate()
+            .expect_err("non-finite slope should fail validation");
+        assert!(format!("{error:#}").contains("non-finite slope"));
+    }
+
+    #[test]
+    fn rejects_non_finite_offset() {
+        let mapping = Mapping {
+            mapping: [(
+                "ECU".to_string(),
+                vec![super::MappingEntry {
+                    name: "x".to_string(),
+                    field_type: super::FieldType::Telemetry,
+                    raw_field: "f".to_string(),
+                    value: super::ValueParams {
+                        slope: 1.0,
+                        offset: f64::NAN,
+                        unit: "".to_string(),
+                    },
+                    logical: vec![],
+                }],
+            )]
+            .into_iter()
+            .collect(),
+        };
+
+        let error = mapping
+            .validate()
+            .expect_err("non-finite offset should fail validation");
+        assert!(format!("{error:#}").contains("non-finite offset"));
+    }
+
+    #[test]
+    fn rejects_duplicate_mapping_name_across_nodes() {
+        let error = Mapping::parse_mapping(
+            r#"
+[[mapping.NodeA]]
+name = "dup"
+type = "telemetry"
+raw_field = "a"
+
+[[mapping.NodeB]]
+name = "dup"
+type = "telemetry"
+raw_field = "b"
+"#,
+        )
+        .expect_err("duplicate mapping names across nodes should fail validation");
+
+        assert!(format!("{error:#}").contains("Duplicate mapping name"));
+    }
+
+    #[test]
+    fn looks_up_mapping_by_raw_field_and_type() {
+        let mapping = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "tank_pressure"
+type = "telemetry"
+raw_field = "pressure_adc"
+
+[[mapping.ECU]]
+name = "valve_opening"
+type = "parameter"
+raw_field = "valve_raw"
+"#,
+        )
+        .expect("mapping should parse");
+
+        let telemetry = mapping
+            .get_mapping_for_raw("ECU", "pressure_adc", super::FieldType::Telemetry)
+            .expect("telemetry mapping should exist");
+        assert_eq!(telemetry.mapping_entry.name, "tank_pressure");
+
+        let parameter = mapping
+            .get_mapping_for_raw("ECU", "valve_raw", super::FieldType::Parameter)
+            .expect("parameter mapping should exist");
+        assert_eq!(parameter.mapping_entry.name, "valve_opening");
+
+        assert!(
+            mapping
+                .get_mapping_for_raw("ECU", "pressure_adc", super::FieldType::Parameter)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn logical_value_returns_none_when_value_in_gap() {
+        let mapping = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "telemetry"
+raw_field = "f"
+
+[[mapping.ECU.logical]]
+range = { min = 0, max = 10 }
+value = "Low"
+
+[[mapping.ECU.logical]]
+range = { min = 20, max = 30 }
+value = "High"
+"#,
+        )
+        .expect("mapping should parse");
+
+        let entry = mapping.get_mapping_for_name("x").unwrap();
+        assert_eq!(entry.mapping_entry.logical_value(15.0), None);
+    }
+
+    #[test]
+    fn logical_range_inclusive_exclusive_boundaries() {
+        let mapping = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "telemetry"
+raw_field = "f"
+
+[[mapping.ECU.logical]]
+range = { max = 10 }
+value = "Low"
+
+[[mapping.ECU.logical]]
+range = { min = 10 }
+value = "High"
+"#,
+        )
+        .expect("mapping should parse");
+
+        let entry = mapping.get_mapping_for_name("x").unwrap();
+        assert_eq!(
+            entry.mapping_entry.logical_value(10.0),
+            Some(LogicalValue {
+                value: Value::String("High".to_string())
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_overlap_due_to_inclusive_boundary() {
+        let error = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "telemetry"
+raw_field = "f"
+
+[[mapping.ECU.logical]]
+range = { max = 10, max_inclusive = true }
+value = "Low"
+
+[[mapping.ECU.logical]]
+range = { min = 10, min_inclusive = true }
+value = "High"
+"#,
+        )
+        .expect_err("inclusive boundary overlap should fail validation");
+
+        assert!(format!("{error:#}").contains("overlaps"));
+    }
+
+    #[test]
+    fn accepts_single_point_range_when_both_inclusive() {
+        Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "telemetry"
+raw_field = "f"
+
+[[mapping.ECU.logical]]
+range = { min = 10, max = 10, min_inclusive = true, max_inclusive = true }
+value = "Ten"
+"#,
+        )
+        .expect("single-point inclusive range should be valid");
+    }
+
+    #[test]
+    fn rejects_single_point_range_when_any_exclusive() {
+        let error = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "telemetry"
+raw_field = "f"
+
+[[mapping.ECU.logical]]
+range = { min = 10, max = 10, min_inclusive = true, max_inclusive = false }
+value = "Ten"
+"#,
+        )
+        .expect_err("single-point exclusive range should be rejected");
+
+        assert!(format!("{error:#}").contains("empty range"));
+    }
+
+    #[test]
+    fn mapped_value_converts_all_can_types_to_f64() {
+        let mapping = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "telemetry"
+raw_field = "f"
+value = { slope = 1.0, offset = 0.0 }
+"#,
+        )
+        .expect("mapping should parse");
+
+        let entry = mapping.get_mapping_for_name("x").unwrap();
+        let mapped = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::Int8(-5))
+            .unwrap();
+        assert!((mapped.value - (-5.0)).abs() < 1e-12);
+
+        let mapped = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::Int16(-300))
+            .unwrap();
+        assert!((mapped.value - (-300.0)).abs() < 1e-12);
+
+        let mapped = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::Int32(-100_000))
+            .unwrap();
+        assert!((mapped.value - (-100_000.0)).abs() < 1e-12);
+
+        let mapped = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::UInt8(250))
+            .unwrap();
+        assert!((mapped.value - 250.0).abs() < 1e-12);
+
+        let mapped = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::UInt16(50_000))
+            .unwrap();
+        assert!((mapped.value - 50_000.0).abs() < 1e-12);
+
+        let mapped = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::UInt32(1_000_000))
+            .unwrap();
+        assert!((mapped.value - 1_000_000.0).abs() < 1e-12);
+
+        let mapped = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::Float32(1.5))
+            .unwrap();
+        assert!((mapped.value - 1.5).abs() < 1e-6);
+
+        let mapped = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::Boolean(true))
+            .unwrap();
+        assert!((mapped.value - 1.0).abs() < 1e-12);
+
+        let mapped = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::Boolean(false))
+            .unwrap();
+        assert!((mapped.value - 0.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn mapped_value_rejects_raw() {
+        let mapping = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "telemetry"
+raw_field = "f"
+"#,
+        )
+        .expect("mapping should parse");
+
+        let entry = mapping.get_mapping_for_name("x").unwrap();
+        let error = entry
+            .mapping_entry
+            .mapped_value(&CanDataValue::Raw(vec![1, 2, 3]))
+            .expect_err("raw values should be rejected");
+
+        assert!(
+            format!("{error:#}").contains("raw CAN data must be decoded before applying a mapping")
+        );
+    }
+
+    #[test]
+    fn raw_value_from_mapped_rejects_out_of_range_integers() {
+        let mapping = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "parameter"
+raw_field = "f"
+value = { slope = 1.0, offset = 0.0 }
+"#,
+        )
+        .expect("mapping should parse");
+
+        let entry = mapping.get_mapping_for_name("x").unwrap();
+        let error = entry
+            .mapping_entry
+            .raw_value_from_mapped(9999.0, CanDataType::UInt8)
+            .expect_err("out of range values should fail");
+        assert!(format!("{error:#}").contains("out of range"));
+    }
+
+    #[test]
+    fn raw_value_from_mapped_boolean_accepts_only_0_or_1() {
+        let mapping = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "parameter"
+raw_field = "f"
+value = { slope = 1.0, offset = 0.0 }
+"#,
+        )
+        .expect("mapping should parse");
+
+        let entry = mapping.get_mapping_for_name("x").unwrap();
+        assert_eq!(
+            entry
+                .mapping_entry
+                .raw_value_from_mapped(0.0, CanDataType::Boolean)
+                .unwrap(),
+            CanDataValue::Boolean(false)
+        );
+        assert_eq!(
+            entry
+                .mapping_entry
+                .raw_value_from_mapped(1.0, CanDataType::Boolean)
+                .unwrap(),
+            CanDataValue::Boolean(true)
+        );
+
+        let error = entry
+            .mapping_entry
+            .raw_value_from_mapped(0.5, CanDataType::Boolean)
+            .expect_err("non 0/1 boolean values should fail");
+        assert!(format!("{error:#}").contains("must map back to 0 or 1"));
+    }
+
+    #[test]
+    fn raw_value_from_mapped_rejects_nan_or_inf() {
+        let mapping = Mapping::parse_mapping(
+            r#"
+[[mapping.ECU]]
+name = "x"
+type = "parameter"
+raw_field = "f"
+value = { slope = 1.0, offset = 0.0 }
+"#,
+        )
+        .expect("mapping should parse");
+
+        let entry = mapping.get_mapping_for_name("x").unwrap();
+        let error = entry
+            .mapping_entry
+            .raw_value_from_mapped(f64::NAN, CanDataType::UInt8)
+            .expect_err("NaN should fail");
+        assert!(format!("{error:#}").contains("must be finite"));
+
+        let error = entry
+            .mapping_entry
+            .raw_value_from_mapped(f64::INFINITY, CanDataType::UInt8)
+            .expect_err("Inf should fail");
+        assert!(format!("{error:#}").contains("must be finite"));
+    }
+
+    #[test]
+    fn load_mapping_from_file_empty_path_returns_default() {
+        let mapping = Mapping::load_mapping_from_file("").unwrap();
+        assert!(mapping.mapping.is_empty());
+    }
+
+    #[test]
+    fn load_mapping_from_path_empty_path_returns_default() {
+        let mapping = Mapping::load_mapping_from_path("").unwrap();
+        assert!(mapping.mapping.is_empty());
+    }
+
+    #[test]
+    fn load_mapping_from_file_missing_file_errors_with_context() {
+        let path = std::env::temp_dir().join(format!(
+            "ferro_flow_mapping_missing_{}_{}.toml",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+
+        let error = Mapping::load_mapping_from_file(path.to_str().unwrap())
+            .expect_err("missing mapping file should error");
+        assert!(format!("{error:#}").contains("Failed to read mapping config file"));
+    }
+
+    #[test]
+    fn load_mapping_from_path_missing_dir_errors_with_context() {
+        let path = std::env::temp_dir().join(format!(
+            "ferro_flow_mapping_missing_dir_{}_{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+
+        let error = Mapping::load_mapping_from_path(path.to_str().unwrap())
+            .expect_err("missing mapping directory should error");
+        assert!(format!("{error:#}").contains("Failed to read mapping directory"));
     }
 
     #[test]
