@@ -1,3 +1,5 @@
+pub mod command;
+
 use std::{collections::HashMap, sync::Mutex};
 
 use anyhow::anyhow;
@@ -7,9 +9,8 @@ use dashmap::DashMap;
 use liquidcan::{
     CanMessage, CanMessageId,
     payloads::{
-        CanDataType, CanDataValue, FieldGetReqPayload, FieldGetResPayload,
-        FieldRegistrationPayload, HeartbeatPayload, NodeInfoResPayload, ParameterSetReqPayload,
-        TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
+        CanDataType, CanDataValue, FieldGetResPayload, FieldRegistrationPayload, HeartbeatPayload,
+        NodeInfoResPayload, TelemetryGroupDefinitionPayload, TelemetryGroupUpdatePayload,
     },
 };
 
@@ -18,6 +19,11 @@ use crate::{db::FieldLog, events};
 
 use super::can_node::{CanNode, FieldInfo, RegistrationInfo, TelemetryGroupDefinition};
 
+/// Manages the CAN nodes connected to FerroFlow.
+///
+/// By convention, methods taking a `field_name` argument expect either
+/// - a name as defined in the mapping file
+/// - a raw name in the format `node_name:raw_field_name`
 pub struct NodeManager<'a> {
     mapping: Mapping,
     can_nodes: DashMap<u8, CanNode>,
@@ -375,28 +381,28 @@ impl<'a> NodeManager<'a> {
         }
     }
 
-    /// Returns the latest cached raw CAN value for a mapped field name.
+    /// Returns the latest cached raw CAN value.
     ///
     /// This does not send a CAN request. Call `request_value` first if a fresh value is needed.
     ///
     /// Use this `try_` variant to distinguish missing values from invalid mappings or fields
     /// that have not registered yet.
-    pub fn try_get_raw_value(&self, mapped_name: &str) -> Result<Option<CanDataValue>> {
-        let (_, target) = self.resolve_mapping_by_name(mapped_name)?;
+    pub fn try_get_raw_value(&self, field_name: &str) -> Result<Option<CanDataValue>> {
+        let (_, target) = self.resolve_mapping_by_name(field_name)?;
 
         Ok(self.latest_raw_value(&target))
     }
 
     /// Convenience wrapper around `try_get_raw_value` that treats errors as missing values.
-    pub fn get_raw_value(&self, mapped_name: &str) -> Option<CanDataValue> {
-        self.try_get_raw_value(mapped_name).ok().flatten()
+    pub fn get_raw_value(&self, field_name: &str) -> Option<CanDataValue> {
+        self.try_get_raw_value(field_name).ok().flatten()
     }
 
     /// Returns the latest cached value after applying the mapping's slope/offset conversion.
     ///
     /// `Ok(None)` means the mapping and raw field exist, but no value has been received yet.
-    pub fn try_get_mapped_value(&self, mapped_name: &str) -> Result<Option<MappedValue>> {
-        let (mapping, target) = self.resolve_mapping_by_name(mapped_name)?;
+    pub fn try_get_mapped_value(&self, field_name: &str) -> Result<Option<MappedValue>> {
+        let (mapping, target) = self.resolve_mapping_by_name(field_name)?;
         let Some(raw_value) = self.latest_raw_value(&target) else {
             return Ok(None);
         };
@@ -405,20 +411,20 @@ impl<'a> NodeManager<'a> {
     }
 
     /// Convenience wrapper around `try_get_mapped_value` that treats errors as missing values.
-    pub fn get_mapped_value(&self, mapped_name: &str) -> Option<MappedValue> {
-        self.try_get_mapped_value(mapped_name).ok().flatten()
+    pub fn get_mapped_value(&self, field_name: &str) -> Option<MappedValue> {
+        self.try_get_mapped_value(field_name).ok().flatten()
     }
 
     /// Returns the logical value associated with the current mapped value.
     ///
     /// Logical values are derived from the configured range table. If the mapping has no logical
     /// rules, this returns `Ok(None)` even when a mapped numeric value is available.
-    pub fn try_get_logical_value(&self, mapped_name: &str) -> Result<Option<LogicalValue>> {
-        let Some(mapped_value) = self.try_get_mapped_value(mapped_name)? else {
+    pub fn try_get_logical_value(&self, field_name: &str) -> Result<Option<LogicalValue>> {
+        let Some(mapped_value) = self.try_get_mapped_value(field_name)? else {
             return Ok(None);
         };
 
-        let mapping_lookup = self.lookup_mapping(mapped_name)?;
+        let mapping_lookup = self.lookup_mapping(field_name)?;
 
         Ok(mapping_lookup
             .mapping_entry
@@ -426,78 +432,32 @@ impl<'a> NodeManager<'a> {
     }
 
     /// Convenience wrapper around `try_get_logical_value` that treats errors as missing values.
-    pub fn get_logical_value(&self, mapped_name: &str) -> Option<LogicalValue> {
-        self.try_get_logical_value(mapped_name).ok().flatten()
+    pub fn get_logical_value(&self, field_name: &str) -> Option<LogicalValue> {
+        self.try_get_logical_value(field_name).ok().flatten()
     }
 
-    /// Sends a `FieldGetReq` for the raw field behind a mapped name.
-    ///
-    /// The response is processed asynchronously by the normal CAN message handler and updates the
-    /// cached value read by `get_raw_value`, `get_mapped_value`, and `get_logical_value`.
-    pub fn request_value(&self, mapped_name: &str) -> Result<()> {
-        let (_, target) = self.resolve_mapping_by_name(mapped_name)?;
-
-        self.event_dispatcher
-            .dispatch(events::Event::SendCanMessage {
-                receiver_node_id: target.node_id,
-                message: CanMessage::FieldGetReq {
-                    payload: FieldGetReqPayload {
-                        field_id: target.field_id,
-                    },
-                },
-            });
-
-        Ok(())
-    }
-
-    /// Writes a mapped value to a mapped parameter field.
-    ///
-    /// The value is converted back to the raw CAN type using the inverse of the configured linear
-    /// mapping, then sent as a `ParameterSetReq`.
-    pub fn set_mapped_value(&self, mapped_name: &str, mapped_value: f64) -> Result<()> {
-        let (mapping_lookup, target) = self.resolve_mapping_by_name(mapped_name)?;
-
-        if mapping_lookup.mapping_entry.field_type != mapping::FieldType::Parameter {
-            bail!("mapped field {mapped_name} is not writable because it is not a parameter");
+    fn lookup_mapping(&self, field_name: &str) -> Result<MappingLookupResult<'_>> {
+        if field_name.contains(':') {
+            // This is a raw name
+            let (node_name, raw_field_name) = field_name.split_once(':').unwrap();
+            self.mapping
+                .get_mapping_for_raw(node_name, raw_field_name)
+                .with_context(|| format!("no mapping exists for {field_name}"))
+        } else {
+            self.mapping
+                .get_mapping_for_name(field_name)
+                .with_context(|| format!("no mapping exists for {field_name}"))
         }
-
-        let raw_value = mapping_lookup
-            .mapping_entry
-            .raw_value_from_mapped(mapped_value, target.data_type)?;
-        self.dispatch_parameter_set(target, raw_value);
-
-        Ok(())
-    }
-
-    /// Writes a raw CAN value to a mapped parameter field.
-    ///
-    /// The value is sent as a `ParameterSetReq`.
-    pub fn set_raw_value(&self, mapped_name: &str, raw_value: CanDataValue) -> Result<()> {
-        let (mapping_lookup, target) = self.resolve_mapping_by_name(mapped_name)?;
-
-        if mapping_lookup.mapping_entry.field_type != mapping::FieldType::Parameter {
-            bail!("mapped field {mapped_name} is not writable because it is not a parameter");
-        }
-
-        self.dispatch_parameter_set(target, raw_value);
-
-        Ok(())
-    }
-
-    fn lookup_mapping(&self, mapped_name: &str) -> Result<MappingLookupResult<'_>> {
-        self.mapping
-            .get_mapping_for_name(mapped_name)
-            .with_context(|| format!("no mapping exists for {mapped_name}"))
     }
 
     fn resolve_mapping_by_name(
         &self,
-        mapped_name: &str,
+        field_name: &str,
     ) -> Result<(MappingLookupResult<'_>, ResolvedMappingTarget)> {
-        let mapping_lookup = self.lookup_mapping(mapped_name)?;
+        let mapping_lookup = self.lookup_mapping(field_name)?;
         let target = self
             .resolve_mapping_target(&mapping_lookup)
-            .with_context(|| format!("mapped field {mapped_name} is not registered"))?;
+            .with_context(|| format!("mapped field {field_name} is not registered"))?;
 
         Ok((mapping_lookup, target))
     }
@@ -508,19 +468,6 @@ impl<'a> NodeManager<'a> {
                 .get(&target.field_id)
                 .map(|value| value.1.clone())
         })
-    }
-
-    fn dispatch_parameter_set(&self, target: ResolvedMappingTarget, raw_value: CanDataValue) {
-        self.event_dispatcher
-            .dispatch(events::Event::SendCanMessage {
-                receiver_node_id: target.node_id,
-                message: CanMessage::ParameterSetReq {
-                    payload: ParameterSetReqPayload {
-                        parameter_id: target.field_id,
-                        value: raw_value,
-                    },
-                },
-            });
     }
 
     /// Resolves a mapping entry to the currently registered node id, field id, and field type.
@@ -564,7 +511,8 @@ mod tests {
     use std::{sync::mpsc, time::Duration};
 
     use chrono::Utc;
-    use liquidcan::payloads::{CanDataType, CanDataValue};
+    use liquidcan::payloads::{CanDataType, CanDataValue, ParameterSetReqPayload};
+    use serde_json::json;
     use toml::Value;
 
     use crate::events::{Event, EventDispatcher, EventKind};
@@ -677,7 +625,7 @@ mod tests {
         insert_test_node(&manager);
 
         manager
-            .set_raw_value("valve_opening", CanDataValue::UInt8(42))
+            .set_raw_value("valve_opening", json!(42))
             .expect("raw parameter should be writable");
 
         assert_eq!(receive_parameter_set(&rx), (5, 20, CanDataValue::UInt8(42)));
@@ -732,7 +680,7 @@ mod tests {
         ));
 
         let err = manager
-            .set_raw_value("tank_pressure", CanDataValue::UInt16(1))
+            .set_raw_value("tank_pressure", json!(1))
             .expect_err("telemetry mappings should not be writable");
         assert!(err.to_string().contains("is not writable"));
 

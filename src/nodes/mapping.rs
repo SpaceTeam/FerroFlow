@@ -215,18 +215,13 @@ impl Mapping {
         })
     }
 
-    pub fn get_mapping_for_raw(
-        &self,
-        node: &str,
-        field: &str,
-        field_type: FieldType,
-    ) -> Option<MappingLookupResult<'_>> {
+    pub fn get_mapping_for_raw(&self, node: &str, field: &str) -> Option<MappingLookupResult<'_>> {
         self.mapping
             .get_key_value(node)
             .and_then(|(node, mapping_entries)| {
                 mapping_entries
                     .iter()
-                    .find(|mapping| mapping.raw_field == field && mapping.field_type == field_type)
+                    .find(|mapping| mapping.raw_field == field)
                     .map(|mapping| MappingLookupResult {
                         node_name: node,
                         mapping_entry: mapping,
@@ -240,6 +235,11 @@ impl MappingEntry {
         ensure!(
             !self.name.trim().is_empty(),
             "mapping name must be non-empty",
+        );
+        ensure!(
+            !self.name.contains(':'),
+            "mapping name '{}' cannot contain colons, which are reserved characters to differentiate raw names from mapped names",
+            self.name
         );
 
         ensure!(
@@ -680,20 +680,14 @@ raw_field = "valve_raw"
         .expect("mapping should parse");
 
         let telemetry = mapping
-            .get_mapping_for_raw("ECU", "pressure_adc", super::FieldType::Telemetry)
+            .get_mapping_for_raw("ECU", "pressure_adc")
             .expect("telemetry mapping should exist");
         assert_eq!(telemetry.mapping_entry.name, "tank_pressure");
 
         let parameter = mapping
-            .get_mapping_for_raw("ECU", "valve_raw", super::FieldType::Parameter)
+            .get_mapping_for_raw("ECU", "valve_raw")
             .expect("parameter mapping should exist");
         assert_eq!(parameter.mapping_entry.name, "valve_opening");
-
-        assert!(
-            mapping
-                .get_mapping_for_raw("ECU", "pressure_adc", super::FieldType::Parameter)
-                .is_none()
-        );
     }
 
     #[test]
