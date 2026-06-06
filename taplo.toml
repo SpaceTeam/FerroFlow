@@ -3,3 +3,9 @@ include = ["**/mapping.toml", "**/mapping/**/*.toml", "**/mappings/**/*.toml"]
 
 [rule.schema]
 path = "./schemas/mapping.schema.json"
+
+[[rule]]
+include = ["**/sequence/**/*.toml", "**/sequences/**/*.toml"]
+
+[rule.schema]
+path = "./schemas/sequence.schema.json"

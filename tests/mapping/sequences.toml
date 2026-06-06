@@ -1,0 +1,14 @@
+[[mapping.SequenceTestNode]]
+name = "servo1"
+type = "parameter"
+raw_field = "servo1"
+
+[[mapping.SequenceTestNode]]
+name = "valve1"
+type = "parameter"
+raw_field = "valve1"
+
+[[mapping.SequenceTestNode]]
+name = "abort"
+type = "parameter"
+raw_field = "abort"

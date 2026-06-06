@@ -3,6 +3,7 @@
 use std::hash::Hash;
 use std::sync::{RwLock, mpsc::Sender};
 
+use crate::sequence::Sequence;
 use liquidcan::{CanMessage, CanMessageId};
 use socketcan::CanAnyFrame;
 
@@ -23,6 +24,13 @@ pub enum Event {
         from_interface: String,
         frame: CanAnyFrame,
     },
+    StartSequence {
+        seq: Sequence,
+        abort_seq: Sequence,
+    },
+    PauseSequence,
+    ResumeSequence,
+    AbortSequence,
 }
 
 #[derive(Debug, Hash, Eq, PartialEq)]
@@ -32,6 +40,7 @@ pub enum EventKind {
     Shutdown,
     SendCanMessage,
     RelayCanMessage,
+    Sequence,
 }
 
 impl From<Event> for EventKind {
@@ -42,6 +51,10 @@ impl From<Event> for EventKind {
             Event::Shutdown => EventKind::Shutdown,
             Event::SendCanMessage { .. } => EventKind::SendCanMessage,
             Event::RelayCanMessage { .. } => EventKind::RelayCanMessage,
+            Event::StartSequence { .. } => EventKind::Sequence,
+            Event::PauseSequence => EventKind::Sequence,
+            Event::ResumeSequence => EventKind::Sequence,
+            Event::AbortSequence => EventKind::Sequence,
         }
     }
 }
