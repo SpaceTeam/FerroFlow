@@ -160,7 +160,7 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
                     if let Err(err) = result {
                         eprintln!(
                             "Failed to set value '{}' for param '{}': {:#?}",
-                            &param_state.value, &param_state.param, err
+                            param_state.value, param_state.param, err
                         );
                     }
                 }
