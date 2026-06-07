@@ -9,12 +9,13 @@ use std::{
 use toml::Value;
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Mapping {
     pub mapping: BTreeMap<String, Vec<MappingEntry>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MappingEntry {
     pub name: String,
     #[serde(rename = "type")]
@@ -27,6 +28,7 @@ pub struct MappingEntry {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValueParams {
     pub slope: f64,
     pub offset: f64,
@@ -45,6 +47,7 @@ impl Default for ValueParams {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LogicalRule {
     pub range: LogicalRange,
     pub value: Value,
