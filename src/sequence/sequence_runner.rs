@@ -155,8 +155,8 @@ impl<'scope, 'env> SequenceRunner<'scope, 'env> {
                 }
 
                 Action::SetParam(param_state) => {
-                    let result =
-                        node_manager.set_mapped_value(&param_state.param, param_state.value);
+                    let result = node_manager
+                        .set_value(&param_state.param, serde_json::json!(param_state.value));
                     if let Err(err) = result {
                         eprintln!(
                             "Failed to set value '{}' for param '{}': {:#?}",

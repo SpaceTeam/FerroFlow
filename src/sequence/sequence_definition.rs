@@ -176,7 +176,7 @@ pub struct HoldCondition {
 
 impl HoldCondition {
     pub fn evaluate(&self, node_manager: &nodes::NodeManager) -> bool {
-        let Some(actual) = node_manager.get_mapped_value(&self.field) else {
+        let Some(actual) = node_manager.get_value(&self.field) else {
             eprintln!("Value for field '{}' missing", self.field);
             return false;
         };
