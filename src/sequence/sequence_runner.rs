@@ -204,11 +204,18 @@ impl Drop for SequencePanicGuard {
 
 #[cfg(test)]
 mod tests {
-    use crate::{events, nodes::mapping::Mapping};
+    use crate::{
+        events::{self, EventKind},
+        nodes::mapping::Mapping,
+    };
 
     use super::*;
+    use liquidcan::{
+        CanMessage, CanMessageId,
+        payloads::{CanDataType, CanDataValue, FieldRegistrationPayload, NodeInfoResPayload},
+    };
     use ntest::timeout;
-    use std::{path::Path, thread, time::Duration};
+    use std::{path::Path, sync::mpsc, thread, time::Duration};
 
     fn load_seq(name: &str) -> Sequence {
         let seq_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -230,12 +237,14 @@ mod tests {
         .expect("failed to load test mapping")
     }
 
-    #[ignore]
     #[test]
     #[timeout(2000)]
     fn test_run_sequence_execution_completes() {
         let event_dispatcher = events::EventDispatcher::new();
+        let (tx, rx) = mpsc::channel();
+        event_dispatcher.subscribe(tx, vec![EventKind::SendCanMessage], "test-send-listener");
         let node_manager = nodes::NodeManager::new(&event_dispatcher, load_mapping());
+        register_sequence_test_node(&node_manager);
 
         thread::scope(|scope| {
             let mut runner = SequenceRunner::new(&node_manager, scope);
@@ -255,16 +264,19 @@ mod tests {
             let join_result = handle.thread_handle.join();
             assert!(join_result.is_ok());
             let sequence_result = join_result.unwrap();
-            assert!(sequence_result.is_ok())
+            assert!(sequence_result.is_ok());
+
+            assert_eq!(receive_parameter_set(&rx), (5, 1, CanDataValue::UInt8(12)));
+            assert_eq!(receive_parameter_set(&rx), (5, 2, CanDataValue::UInt8(12)));
         });
     }
 
-    #[ignore]
     #[test]
     #[timeout(2000)]
     fn test_run_sequence_hold_and_resume_completes() {
         let event_dispatcher = events::EventDispatcher::new();
         let node_manager = nodes::NodeManager::new(&event_dispatcher, load_mapping());
+        register_sequence_test_node(&node_manager);
 
         thread::scope(|scope| {
             let mut runner = SequenceRunner::new(&node_manager, scope);
@@ -292,12 +304,14 @@ mod tests {
         });
     }
 
-    #[ignore]
     #[test]
     #[timeout(2000)]
     fn test_run_sequence_abort() {
         let event_dispatcher = events::EventDispatcher::new();
+        let (tx, rx) = mpsc::channel();
+        event_dispatcher.subscribe(tx, vec![EventKind::SendCanMessage], "test-send-listener");
         let node_manager = nodes::NodeManager::new(&event_dispatcher, load_mapping());
+        register_sequence_test_node(&node_manager);
 
         thread::scope(|scope| {
             let mut runner = SequenceRunner::new(&node_manager, scope);
@@ -321,11 +335,64 @@ mod tests {
             let join_result = handle.thread_handle.join();
             assert!(join_result.is_ok());
             let sequence_result = join_result.unwrap();
-            assert!(sequence_result.is_err());
-            assert!(matches!(
-                sequence_result.unwrap_err(),
-                SequenceRunError::Aborted
-            ));
+            assert!(sequence_result.is_ok());
+            assert_eq!(receive_parameter_set(&rx), (5, 3, CanDataValue::UInt8(1)));
         });
+    }
+
+    fn register_sequence_test_node(node_manager: &nodes::NodeManager<'_>) {
+        let msg_id = CanMessageId::new()
+            .with_sender_id(5)
+            .with_receiver_id(liquidcan::NODE_ID_SERVER);
+
+        node_manager
+            .handle_node_info_announcement(
+                msg_id,
+                NodeInfoResPayload {
+                    tel_count: 0,
+                    par_count: 3,
+                    firmware_hash: 0,
+                    liquid_hash: 0,
+                    device_name: "SequenceTestNode".try_into().unwrap(),
+                },
+            )
+            .expect("test node info should register");
+
+        for (field_id, field_name) in [(1, "servo1"), (2, "valve1"), (3, "abort")] {
+            node_manager
+                .handle_field_registration(
+                    msg_id,
+                    FieldRegistrationPayload {
+                        field_id,
+                        field_type: CanDataType::UInt8,
+                        field_name: field_name.try_into().unwrap(),
+                    },
+                    false,
+                )
+                .expect("test parameter should register");
+        }
+
+        assert_eq!(node_manager.get_nodes().len(), 1);
+    }
+
+    fn receive_parameter_set(rx: &mpsc::Receiver<events::Event>) -> (u8, u8, CanDataValue) {
+        let event = rx
+            .recv_timeout(Duration::from_millis(200))
+            .expect("send event should be dispatched");
+
+        match event {
+            events::Event::SendCanMessage {
+                receiver_node_id,
+                message:
+                    CanMessage::ParameterSetReq {
+                        payload:
+                            liquidcan::payloads::ParameterSetReqPayload {
+                                parameter_id,
+                                value,
+                            },
+                    },
+            } => (receiver_node_id, parameter_id, value),
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 }
