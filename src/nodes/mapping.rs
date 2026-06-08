@@ -429,7 +429,7 @@ impl LogicalRange {
     }
 }
 
-fn can_data_value_to_f64(value: &CanDataValue) -> anyhow::Result<f64> {
+pub fn can_data_value_to_f64(value: &CanDataValue) -> anyhow::Result<f64> {
     match value {
         CanDataValue::Float32(value) => Ok(*value as f64),
         CanDataValue::Int32(value) => Ok(*value as f64),
@@ -444,7 +444,7 @@ fn can_data_value_to_f64(value: &CanDataValue) -> anyhow::Result<f64> {
 }
 
 /// Converts a mapped numeric value back into a typed CAN payload value.
-fn can_data_value_from_f64(value: f64, data_type: CanDataType) -> anyhow::Result<CanDataValue> {
+pub fn can_data_value_from_f64(value: f64, data_type: CanDataType) -> anyhow::Result<CanDataValue> {
     ensure!(value.is_finite(), "raw value must be finite");
 
     match data_type {

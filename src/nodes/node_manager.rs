@@ -14,7 +14,9 @@ use liquidcan::{
     },
 };
 
-use crate::nodes::mapping::{self, LogicalValue, MappedValue, Mapping, MappingLookupResult};
+use crate::nodes::mapping::{
+    self, LogicalValue, MappedValue, Mapping, MappingLookupResult, can_data_value_to_f64,
+};
 use crate::{db::FieldLog, events};
 
 use super::can_node::{CanNode, FieldInfo, RegistrationInfo, TelemetryGroupDefinition};
@@ -384,6 +386,44 @@ impl<'a> NodeManager<'a> {
         }
     }
 
+    fn is_mapped_name(field_name: &str) -> bool {
+        !field_name.contains(':')
+    }
+
+    /// Takes a raw or mapped field name, and returns the raw or mapped value, respectively.
+    ///
+    /// That is, for raw field names, this returns the latest cached raw CAN value.
+    /// For mapped field names, this returns the latest cached value after applying the mapping's slope/offset conversion.
+    pub fn try_get_value(&self, field_name: &str) -> Result<Option<MappedValue>> {
+        if Self::is_mapped_name(field_name) {
+            self.try_get_mapped_value(field_name).with_context(|| {
+                format!("failed to get mapped value for field name '{field_name}'")
+            })
+        } else {
+            let Some(raw_value) = self.try_get_raw_value(field_name).with_context(|| {
+                format!("failed to get raw value for field name '{field_name}'")
+            })?
+            else {
+                return Ok(None);
+            };
+
+            let numerical_representation =
+                can_data_value_to_f64(&raw_value).with_context(|| {
+                    format!("failed to convert raw value for field name '{field_name}' to f64")
+                })?;
+
+            Ok(Some(MappedValue {
+                value: numerical_representation,
+                unit: String::new(), // this is a converted raw value which has no unit
+            }))
+        }
+    }
+
+    /// Convenience wrapper around `try_get_value` that treats errors as missing values.
+    pub fn get_value(&self, field_name: &str) -> Option<MappedValue> {
+        self.try_get_value(field_name).ok().flatten()
+    }
+
     /// Returns the latest cached raw CAN value.
     ///
     /// This does not send a CAN request. Call `request_value` first if a fresh value is needed.
@@ -440,15 +480,14 @@ impl<'a> NodeManager<'a> {
     }
 
     fn lookup_mapping(&self, field_name: &str) -> Result<MappingLookupResult<'_>> {
-        if field_name.contains(':') {
-            // This is a raw name
+        if Self::is_mapped_name(field_name) {
+            self.mapping
+                .get_mapping_for_name(field_name)
+                .with_context(|| format!("no mapping exists for {field_name}"))
+        } else {
             let (node_name, raw_field_name) = field_name.split_once(':').unwrap();
             self.mapping
                 .get_mapping_for_raw(node_name, raw_field_name)
-                .with_context(|| format!("no mapping exists for {field_name}"))
-        } else {
-            self.mapping
-                .get_mapping_for_name(field_name)
                 .with_context(|| format!("no mapping exists for {field_name}"))
         }
     }
@@ -584,6 +623,51 @@ mod tests {
     }
 
     #[test]
+    fn get_value_reads_mapped_names_as_mapped_and_raw_names_as_numeric_raw() {
+        let dispatcher = EventDispatcher::new();
+        let manager = NodeManager::new(&dispatcher, test_mapping());
+        insert_test_node(&manager);
+
+        let mapped = manager
+            .try_get_value("tank_pressure")
+            .expect("mapped lookup should succeed")
+            .expect("mapped value should be cached");
+        assert_eq!(mapped.value, 100.0);
+        assert_eq!(mapped.unit, "bar");
+
+        let raw = manager
+            .try_get_value("ECU:pressure_adc")
+            .expect("raw lookup should succeed")
+            .expect("raw value should be cached");
+        assert_eq!(raw.value, 198.0);
+        assert_eq!(raw.unit, "");
+
+        assert_eq!(manager.try_get_value("ECU:valve_raw").unwrap(), None);
+        assert_eq!(manager.get_value("non_existent"), None);
+        assert_eq!(manager.get_value("ECU:missing_raw"), None);
+    }
+
+    #[test]
+    fn try_get_value_reports_raw_values_that_cannot_be_converted_to_numbers() {
+        let dispatcher = EventDispatcher::new();
+        let manager = NodeManager::new(&dispatcher, test_mapping());
+        insert_test_node(&manager);
+
+        manager
+            .can_nodes
+            .get(&5)
+            .expect("node should exist")
+            .values
+            .insert(10, (Utc::now(), CanDataValue::Raw(vec![1, 2, 3])));
+
+        let err = manager
+            .try_get_value("ECU:pressure_adc")
+            .expect_err("raw bytes should not convert to a generic numeric value");
+        assert!(format!("{err:#}").contains("failed to convert raw value"));
+        assert_eq!(manager.get_value("ECU:pressure_adc"), None);
+    }
+
+    #[test]
     fn get_returns_none_on_missing_mapping_or_unregistered() {
         let dispatcher = EventDispatcher::new();
         let manager = NodeManager::new(&dispatcher, test_mapping());
@@ -632,6 +716,55 @@ mod tests {
             .expect("raw parameter should be writable");
 
         assert_eq!(receive_parameter_set(&rx), (5, 20, CanDataValue::UInt8(42)));
+    }
+
+    #[test]
+    fn set_value_routes_mapped_and_raw_names() {
+        let dispatcher = EventDispatcher::new();
+        let (tx, rx) = mpsc::channel();
+        dispatcher.subscribe(tx, vec![EventKind::SendCanMessage], "test-send-listener");
+
+        let manager = NodeManager::new(&dispatcher, test_mapping());
+        insert_test_node(&manager);
+
+        manager
+            .set_value("valve_opening", json!(60.0))
+            .expect("mapped parameter should be writable through generic setter");
+        assert_eq!(
+            receive_parameter_set(&rx),
+            (5, 20, CanDataValue::UInt8(100))
+        );
+
+        manager
+            .set_value("ECU:valve_raw", json!(42))
+            .expect("raw parameter should be writable through generic setter");
+        assert_eq!(receive_parameter_set(&rx), (5, 20, CanDataValue::UInt8(42)));
+    }
+
+    #[test]
+    fn set_value_accepts_boolean_mapped_input() {
+        let dispatcher = EventDispatcher::new();
+        let (tx, rx) = mpsc::channel();
+        dispatcher.subscribe(tx, vec![EventKind::SendCanMessage], "test-send-listener");
+
+        let manager = NodeManager::new(&dispatcher, boolean_test_mapping());
+        insert_boolean_test_node(&manager);
+
+        manager
+            .set_value("pump_enabled", json!(true))
+            .expect("boolean mapped value should be accepted");
+        assert_eq!(
+            receive_parameter_set(&rx),
+            (5, 30, CanDataValue::Boolean(true))
+        );
+
+        manager
+            .set_value("pump_enabled", json!(false))
+            .expect("boolean mapped value should be accepted");
+        assert_eq!(
+            receive_parameter_set(&rx),
+            (5, 30, CanDataValue::Boolean(false))
+        );
     }
 
     #[test]
@@ -897,6 +1030,18 @@ value = { slope = 0.5, offset = 10.0, unit = "%" }
         .expect("mapping should parse")
     }
 
+    fn boolean_test_mapping() -> Mapping {
+        Mapping::parse_mapping(
+            r##"
+[[mapping.ECU]]
+name = "pump_enabled"
+type = "parameter"
+raw_field = "pump_enable_raw"
+"##,
+        )
+        .expect("mapping should parse")
+    }
+
     fn receive_parameter_set(rx: &mpsc::Receiver<Event>) -> (u8, u8, CanDataValue) {
         let event = rx
             .recv_timeout(Duration::from_millis(200))
@@ -974,6 +1119,25 @@ value = { slope = 0.5, offset = 10.0, unit = "%" }
             1,
             TelemetryGroupDefinition {
                 fields: vec![10, 11],
+            },
+        );
+
+        manager.can_nodes.insert(5, node);
+    }
+
+    fn insert_boolean_test_node(manager: &NodeManager<'_>) {
+        let mut node = CanNode::new(RegistrationInfo {
+            telemetry_count: 0,
+            parameter_count: 1,
+            firmware_hash: 0,
+            protocol_hash: 0,
+            device_name: "ECU".to_string(),
+        });
+        node.parameter_fields.insert(
+            30,
+            FieldInfo {
+                data_type: CanDataType::Boolean,
+                name: "pump_enable_raw".to_string(),
             },
         );
 

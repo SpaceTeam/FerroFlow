@@ -67,6 +67,19 @@ impl<'a> NodeManager<'a> {
         Ok(())
     }
 
+    /// Writes a value, either raw or mapped depending on the field name format.
+    ///
+    /// If `field_name` is a raw name, `value` is converted directly to a `CanDataValue` and sent as-is.
+    /// If `field_name` is a mapped name, `value` is converted using the inverse of the configured linear mapping before being sent.
+    pub fn set_value(&self, field_name: &str, value: Value) -> Result<()> {
+        if Self::is_mapped_name(field_name) {
+            self.set_mapped_value(field_name, json_value_to_f64(&value)?)?;
+        } else {
+            self.set_raw_value(field_name, value)?;
+        }
+        Ok(())
+    }
+
     fn dispatch_parameter_set(&self, target: ResolvedMappingTarget, raw_value: CanDataValue) {
         self.event_dispatcher
             .dispatch(events::Event::SendCanMessage {
