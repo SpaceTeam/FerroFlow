@@ -394,6 +394,9 @@ impl<'a> NodeManager<'a> {
     ///
     /// That is, for raw field names, this returns the latest cached raw CAN value.
     /// For mapped field names, this returns the latest cached value after applying the mapping's slope/offset conversion.
+    ///
+    /// Returns Err if the field name is invalid or applying the mapping failed.
+    /// Returns Ok(None) if the field name is valid but no value has been received yet.
     pub fn try_get_value(&self, field_name: &str) -> Result<Option<MappedValue>> {
         if Self::is_mapped_name(field_name) {
             self.try_get_mapped_value(field_name).with_context(|| {
