@@ -93,22 +93,18 @@ pub fn json_value_to_can_data_value(
         CanDataType::UInt32 => Ok(CanDataValue::UInt32(json_value_to_integer(&value)?)),
         CanDataType::UInt16 => Ok(CanDataValue::UInt16(json_value_to_integer(&value)?)),
         CanDataType::UInt8 => Ok(CanDataValue::UInt8(json_value_to_integer(&value)?)),
-        CanDataType::Boolean => value
-            .as_bool()
-            .map(CanDataValue::Boolean)
-            .or_else(|| {
-                value
-                    .as_i64()
-                    .map(|value| CanDataValue::Boolean(value != 0))
-            })
-            .with_context(|| format!("expected boolean-compatible value, got {value}")),
+        CanDataType::Boolean => Ok(CanDataValue::Boolean(json_value_as_bool(&value)?)),
     }
 }
 
 fn json_value_to_f64(value: &serde_json::Value) -> Result<f64> {
-    value
-        .as_f64()
-        .with_context(|| format!("expected numeric value, got {value}"))
+    match value {
+        Value::Number(num) => num
+            .as_f64()
+            .with_context(|| format!("expected numeric value, got {value}")),
+        Value::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
+        _ => Err(anyhow!("expected numeric or boolean value, got {value}")),
+    }
 }
 
 fn json_value_to_integer<T>(value: &serde_json::Value) -> Result<T>
@@ -116,8 +112,23 @@ where
     T: TryFrom<i64>,
     <T as TryFrom<i64>>::Error: std::fmt::Debug,
 {
-    let raw = value
-        .as_i64()
-        .with_context(|| format!("expected integer value, got {value}"))?;
+    let raw = match value {
+        Value::Number(num) => num
+            .as_i64()
+            .with_context(|| format!("expected integer value, got {value}")),
+        Value::Bool(b) => Ok(if *b { 1 } else { 0 }),
+        _ => Err(anyhow!("expected integer or boolean value, got {value}")),
+    }?;
     T::try_from(raw).map_err(|_| anyhow!("integer value {raw} is out of range"))
+}
+
+fn json_value_as_bool(value: &serde_json::Value) -> Result<bool> {
+    match value {
+        Value::Bool(b) => Ok(*b),
+        Value::Number(num) => num
+            .as_i64()
+            .map(|value| value != 0)
+            .with_context(|| format!("expected boolean-compatible value, got {value}")),
+        _ => Err(anyhow!("expected boolean-compatible value, got {value}")),
+    }
 }
