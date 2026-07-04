@@ -1,0 +1,348 @@
+# Semantic mapping for the generic ECUEmulator field names.
+# The emulators expose the same raw names on every node (pressure0, temp0,
+# actuator0, digital0, ...). FerroFlow uses this file to present the
+# node-specific/semantic names.
+
+# Fuel ECU (old CANMapping node 31: fuel_ecu)
+[[mapping.FuelECU]]
+name = "fuel_tank_pressure"
+type = "telemetry"
+raw_field = "pressure0"
+value = { slope = 0.01888275146, offset = -15.0, unit = "bar" }
+
+[[mapping.FuelECU]]
+name = "fuel_pressurant_pressure"
+type = "telemetry"
+raw_field = "pressure1"
+value = { slope = 0.125885, offset = -100.0, unit = "bar" }
+
+[[mapping.FuelECU]]
+name = "fuel_pressure_2"
+type = "telemetry"
+raw_field = "pressure2"
+value = { slope = 0.125885, offset = -100.0, unit = "bar" }
+
+[[mapping.FuelECU]]
+name = "fuel_pressure_3"
+type = "telemetry"
+raw_field = "pressure3"
+value = { slope = 1.0, offset = 0.0 }
+
+[[mapping.FuelECU]]
+name = "fuel_tank_temp"
+type = "telemetry"
+raw_field = "temp0"
+value = { slope = 0.0188, offset = -313.0, unit = "degC" }
+
+[[mapping.FuelECU]]
+name = "fuel_line_temp"
+type = "telemetry"
+raw_field = "temp1"
+value = { slope = 0.0188, offset = -313.0, unit = "degC" }
+
+[[mapping.FuelECU]]
+name = "fuel_vent_cont"
+type = "telemetry"
+raw_field = "digital0_cont"
+
+[[mapping.FuelECU]]
+name = "fuel_igniter_1_cont"
+type = "telemetry"
+raw_field = "digital1_cont"
+
+[[mapping.FuelECU]]
+name = "fuel_igniter_2_cont"
+type = "telemetry"
+raw_field = "digital2_cont"
+
+[[mapping.FuelECU]]
+name = "fuel_igniter_3_cont"
+type = "telemetry"
+raw_field = "digital3_cont"
+
+[[mapping.FuelECU]]
+name = "fuel_sense_5V"
+type = "telemetry"
+raw_field = "supply0"
+value = { slope = 0.001622020152, offset = 0.0, unit = "V" }
+
+[[mapping.FuelECU]]
+name = "fuel_sense_12V"
+type = "telemetry"
+raw_field = "supply1"
+value = { slope = 0.008921110838, offset = 0.0, unit = "V" }
+
+[[mapping.FuelECU]]
+name = "fuel_sense_12VA"
+type = "telemetry"
+raw_field = "supply2"
+value = { slope = 0.008921110838, offset = 0.0, unit = "V" }
+
+[[mapping.FuelECU]]
+name = "fuel_pressurant_valve"
+type = "parameter"
+raw_field = "actuator0"
+
+[[mapping.FuelECU]]
+name = "fuel_servo_1"
+type = "parameter"
+raw_field = "actuator1"
+
+[[mapping.FuelECU]]
+name = "fuel_vent"
+type = "parameter"
+raw_field = "digital0"
+
+[[mapping.FuelECU]]
+name = "fuel_igniter_1"
+type = "parameter"
+raw_field = "digital1"
+
+[[mapping.FuelECU]]
+name = "fuel_igniter_2"
+type = "parameter"
+raw_field = "digital2"
+
+[[mapping.FuelECU]]
+name = "fuel_igniter_3"
+type = "parameter"
+raw_field = "digital3"
+
+[[mapping.FuelECU]]
+name = "fuel_pi_controller"
+type = "parameter"
+raw_field = "controller0"
+value = { slope = 0.001525879, offset = 0.0 }
+
+[[mapping.FuelECU]]
+name = "fuel_rocket"
+type = "parameter"
+raw_field = "state_machine"
+
+# Ox ECU (old CANMapping node 32: ox_ecu)
+[[mapping.OxECU]]
+name = "ox_tank_pressure"
+type = "telemetry"
+raw_field = "pressure0"
+value = { slope = 0.01888275146, offset = -15.0, unit = "bar" }
+
+[[mapping.OxECU]]
+name = "ox_pressurant_pressure"
+type = "telemetry"
+raw_field = "pressure1"
+value = { slope = 0.125885, offset = -100.0, unit = "bar" }
+
+[[mapping.OxECU]]
+name = "ox_pressure_2"
+type = "telemetry"
+raw_field = "pressure2"
+value = { slope = 0.125885, offset = -100.0, unit = "bar" }
+
+[[mapping.OxECU]]
+name = "ox_pressure_3"
+type = "telemetry"
+raw_field = "pressure3"
+value = { slope = 1.0, offset = 0.0 }
+
+[[mapping.OxECU]]
+name = "ox_tank_temp"
+type = "telemetry"
+raw_field = "temp0"
+value = { slope = 0.0188, offset = -313.0, unit = "degC" }
+
+[[mapping.OxECU]]
+name = "ox_line_temp"
+type = "telemetry"
+raw_field = "temp1"
+value = { slope = 0.0188, offset = -308.0, unit = "degC" }
+
+[[mapping.OxECU]]
+name = "ox_vent_cont"
+type = "telemetry"
+raw_field = "digital0_cont"
+
+[[mapping.OxECU]]
+name = "ox_igniter_1_cont"
+type = "telemetry"
+raw_field = "digital1_cont"
+
+[[mapping.OxECU]]
+name = "ox_igniter_2_cont"
+type = "telemetry"
+raw_field = "digital2_cont"
+
+[[mapping.OxECU]]
+name = "ox_igniter_3_cont"
+type = "telemetry"
+raw_field = "digital3_cont"
+
+[[mapping.OxECU]]
+name = "ox_sense_5V"
+type = "telemetry"
+raw_field = "supply0"
+value = { slope = 0.001622020152, offset = 0.0, unit = "V" }
+
+[[mapping.OxECU]]
+name = "ox_sense_12V"
+type = "telemetry"
+raw_field = "supply1"
+value = { slope = 0.008921110838, offset = 0.0, unit = "V" }
+
+[[mapping.OxECU]]
+name = "ox_sense_12VA"
+type = "telemetry"
+raw_field = "supply2"
+value = { slope = 0.008921110838, offset = 0.0, unit = "V" }
+
+[[mapping.OxECU]]
+name = "ox_pressurant_valve"
+type = "parameter"
+raw_field = "actuator0"
+
+[[mapping.OxECU]]
+name = "ox_servo_1"
+type = "parameter"
+raw_field = "actuator1"
+
+[[mapping.OxECU]]
+name = "ox_vent"
+type = "parameter"
+raw_field = "digital0"
+
+[[mapping.OxECU]]
+name = "ox_igniter_1"
+type = "parameter"
+raw_field = "digital1"
+
+[[mapping.OxECU]]
+name = "ox_igniter_2"
+type = "parameter"
+raw_field = "digital2"
+
+[[mapping.OxECU]]
+name = "ox_igniter_3"
+type = "parameter"
+raw_field = "digital3"
+
+[[mapping.OxECU]]
+name = "ox_pi_controller"
+type = "parameter"
+raw_field = "controller0"
+
+[[mapping.OxECU]]
+name = "ox_rocket"
+type = "parameter"
+raw_field = "state_machine"
+
+# Engine ECU (old CANMapping node 33: engine_ecu)
+[[mapping.EngineECU]]
+name = "fuel_venturi_pressure"
+type = "telemetry"
+raw_field = "pressure0"
+value = { slope = 0.01888275146, offset = -15.0, unit = "bar" }
+
+[[mapping.EngineECU]]
+name = "ox_venturi_pressure"
+type = "telemetry"
+raw_field = "pressure1"
+value = { slope = 0.01888275146, offset = -15.0, unit = "bar" }
+
+[[mapping.EngineECU]]
+name = "chamber_pressure"
+type = "telemetry"
+raw_field = "pressure2"
+value = { slope = 0.01888275146, offset = -15.0, unit = "bar" }
+
+[[mapping.EngineECU]]
+name = "engine_pressure_3"
+type = "telemetry"
+raw_field = "pressure3"
+value = { slope = 1.0, offset = 0.0 }
+
+[[mapping.EngineECU]]
+name = "engine_temp_0"
+type = "telemetry"
+raw_field = "temp0"
+
+[[mapping.EngineECU]]
+name = "engine_temp_1"
+type = "telemetry"
+raw_field = "temp1"
+
+[[mapping.EngineECU]]
+name = "engine_igniter_0_cont"
+type = "telemetry"
+raw_field = "digital0_cont"
+
+[[mapping.EngineECU]]
+name = "internal_igniter_1_cont"
+type = "telemetry"
+raw_field = "digital1_cont"
+
+[[mapping.EngineECU]]
+name = "internal_igniter_2_cont"
+type = "telemetry"
+raw_field = "digital2_cont"
+
+[[mapping.EngineECU]]
+name = "engine_igniter_3_cont"
+type = "telemetry"
+raw_field = "digital3_cont"
+
+[[mapping.EngineECU]]
+name = "engine_sense_5V"
+type = "telemetry"
+raw_field = "supply0"
+value = { slope = 0.001622020152, offset = 0.0, unit = "V" }
+
+[[mapping.EngineECU]]
+name = "engine_sense_12V"
+type = "telemetry"
+raw_field = "supply1"
+value = { slope = 0.008921110838, offset = 0.0, unit = "V" }
+
+[[mapping.EngineECU]]
+name = "engine_sense_12VA"
+type = "telemetry"
+raw_field = "supply2"
+value = { slope = 0.008921110838, offset = 0.0, unit = "V" }
+
+[[mapping.EngineECU]]
+name = "fuel_main_valve"
+type = "parameter"
+raw_field = "actuator0"
+
+[[mapping.EngineECU]]
+name = "ox_main_valve"
+type = "parameter"
+raw_field = "actuator1"
+
+[[mapping.EngineECU]]
+name = "engine_igniter_0"
+type = "parameter"
+raw_field = "digital0"
+
+[[mapping.EngineECU]]
+name = "internal_igniter_1"
+type = "parameter"
+raw_field = "digital1"
+
+[[mapping.EngineECU]]
+name = "internal_igniter_2"
+type = "parameter"
+raw_field = "digital2"
+
+[[mapping.EngineECU]]
+name = "engine_igniter_3"
+type = "parameter"
+raw_field = "digital3"
+
+[[mapping.EngineECU]]
+name = "engine_ox_main_pi_controller"
+type = "parameter"
+raw_field = "controller0"
+
+[[mapping.EngineECU]]
+name = "rocket"
+type = "parameter"
+raw_field = "state_machine"

@@ -115,12 +115,15 @@ fn connected_socket_worker(
 
         while let Some(msg_len) = read_message(stream, &mut msg_buf)? {
             msg_buf.drain(..2); // remove length prefix
-            handle_command(
+            if let Err(error) = handle_command(
                 stream,
                 node_manager,
                 &msg_buf[..msg_len],
                 &mut last_telemetry_timestamp,
-            )?;
+            ) {
+                eprintln!("Error handling webserver command: {error:#}");
+                send_error_message(stream, format!("{error:#}"))?;
+            }
             msg_buf.drain(..msg_len);
         }
     }
@@ -293,6 +296,10 @@ fn telemetry_nodes_from_snapshots(
         .collect()
 }
 
+fn send_error_message(stream: &mut TcpStream, message: String) -> Result<()> {
+    send_message(stream, "error", ErrorContent { message })
+}
+
 fn send_message<T: Serialize>(
     stream: &mut TcpStream,
     message_type: &'static str,
@@ -401,6 +408,11 @@ struct OutgoingMessage<T> {
     #[serde(rename = "type")]
     message_type: &'static str,
     content: T,
+}
+
+#[derive(Serialize)]
+struct ErrorContent {
+    message: String,
 }
 
 #[derive(Serialize)]

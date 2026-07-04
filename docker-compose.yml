@@ -1,0 +1,33 @@
+services:
+  ferroflow:
+    build: .
+    image: ferroflow:local
+    network_mode: host
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - ./config.docker.yml:/app/config.yml:ro
+      - ./tests/mapping:/app/mappings:ro
+    restart: unless-stopped
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_DB: ferroflow
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ferroflow
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - timescaledb-data:/var/lib/postgresql/data
+      - ./migrations/2026-03-06-005113-0000_create_field_logs/up.sql:/docker-entrypoint-initdb.d/001_create_field_logs.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ferroflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  timescaledb-data:

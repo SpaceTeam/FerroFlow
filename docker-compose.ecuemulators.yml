@@ -1,0 +1,36 @@
+services:
+  ferroflow:
+    build: .
+    image: ferroflow:local
+    network_mode: host
+    volumes:
+      - ./docker/ferroflow-emulators.yml:/app/config.yml:ro
+      - ./docker/mappings:/app/mappings:ro
+    restart: unless-stopped
+
+  ecuemulator-1:
+    image: tuwienspaceteam/ecuemulator:latest
+    network_mode: host
+    environment:
+      CONFIG_PATH: /config/config.toml
+    volumes:
+      - ./docker/ecuemulator/ecu1.toml:/config/config.toml:ro
+    restart: unless-stopped
+
+  ecuemulator-2:
+    image: tuwienspaceteam/ecuemulator:latest
+    network_mode: host
+    environment:
+      CONFIG_PATH: /config/config.toml
+    volumes:
+      - ./docker/ecuemulator/ecu2.toml:/config/config.toml:ro
+    restart: unless-stopped
+
+  ecuemulator-3:
+    image: tuwienspaceteam/ecuemulator:latest
+    network_mode: host
+    environment:
+      CONFIG_PATH: /config/config.toml
+    volumes:
+      - ./docker/ecuemulator/ecu3.toml:/config/config.toml:ro
+    restart: unless-stopped

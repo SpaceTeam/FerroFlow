@@ -1,0 +1,103 @@
+# Generic ECUEmulator config used with docker/mappings/emulators.toml for semantic names.
+# All three emulator configs expose the same raw telemetry/parameter names;
+# FerroFlow mapping translates them per node/device into domain-specific names.
+node_id = 13
+frequency = 0.3
+can_interface = "vcan0"
+firmware_hash = "0x123"
+liquid_hash = "0x123"
+device_name = "EngineECU"
+
+[TelemetryValues]
+  [TelemetryValues.pressure0]
+  value = 0x000003E8
+  datatype = "UInt32"
+
+  [TelemetryValues.pressure1]
+  value = 0x0000044C
+  datatype = "UInt32"
+
+  [TelemetryValues.pressure2]
+  value = 0x000004B0
+  datatype = "UInt32"
+
+  [TelemetryValues.pressure3]
+  value = 0x00000514
+  datatype = "UInt32"
+
+  [TelemetryValues.temp0]
+  value = 0x00000BB8
+  datatype = "UInt32"
+
+  [TelemetryValues.temp1]
+  value = 0x00000C1C
+  datatype = "UInt32"
+
+  [TelemetryValues.digital0_cont]
+  value = 0
+  datatype = "Boolean"
+
+  [TelemetryValues.digital1_cont]
+  value = 0
+  datatype = "Boolean"
+
+  [TelemetryValues.digital2_cont]
+  value = 0
+  datatype = "Boolean"
+
+  [TelemetryValues.digital3_cont]
+  value = 0
+  datatype = "Boolean"
+
+  [TelemetryValues.supply0]
+  value = 0x00001388
+  datatype = "UInt32"
+
+  [TelemetryValues.supply1]
+  value = 0x00002EE0
+  datatype = "UInt32"
+
+  [TelemetryValues.supply2]
+  value = 0x00002EE0
+  datatype = "UInt32"
+
+[Parameters]
+  [Parameters.actuator0]
+  value = 0x00000000
+  locked = false
+  datatype = "UInt32"
+
+  [Parameters.actuator1]
+  value = 0x00000000
+  locked = false
+  datatype = "UInt32"
+
+  [Parameters.digital0]
+  value = false
+  locked = false
+  datatype = "Boolean"
+
+  [Parameters.digital1]
+  value = false
+  locked = false
+  datatype = "Boolean"
+
+  [Parameters.digital2]
+  value = false
+  locked = false
+  datatype = "Boolean"
+
+  [Parameters.digital3]
+  value = false
+  locked = false
+  datatype = "Boolean"
+
+  [Parameters.controller0]
+  value = 0x00000000
+  locked = false
+  datatype = "UInt32"
+
+  [Parameters.state_machine]
+  value = 0x00000000
+  locked = false
+  datatype = "UInt32"

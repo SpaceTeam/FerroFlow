@@ -10,6 +10,34 @@ See the [Sequences README](sequences/README.md) for more information.
 
 # Setup
 
+## Docker
+
+This repository includes a multi-stage Docker build and a Docker Compose setup with TimescaleDB.
+
+```bash
+docker compose up --build
+```
+
+The compose file mounts `config.docker.yml` as `/app/config.yml` and uses host networking so the container can access host SocketCAN interfaces such as `can0`. Edit `config.docker.yml` to match your CAN interface(s), database URL, and mapping directory. The default compose setup initializes TimescaleDB with the `field_logs` migration on first start.
+
+To build only the application image:
+
+```bash
+docker build -t ferroflow:local .
+docker run --rm --network host \
+  -v "$PWD/config.docker.yml:/app/config.yml:ro" \
+  -v "$PWD/tests/mapping:/app/mappings:ro" \
+  ferroflow:local
+```
+
+An emulator-only compose setup is also available. It starts FerroFlow plus three `tuwienspaceteam/ecuemulator:latest` containers, each with its own config file under `docker/ecuemulator/`:
+
+```bash
+docker compose -f docker-compose.ecuemulators.yml up --build
+```
+
+This setup uses host networking and defaults to `vcan0`; create the host CAN/vCAN interface first or edit `docker/ferroflow-emulators.yml` and the emulator configs.
+
 ## Integration tests: SocketCAN / vcan
 
 Some integration tests talk to the ECUemulator over SocketCAN. For that you use a virtual CAN interface.

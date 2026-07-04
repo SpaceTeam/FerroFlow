@@ -1,0 +1,17 @@
+# Docker Compose config for running FerroFlow against local ECUEmulator containers.
+# Create the CAN/vCAN interface on the host first, for example:
+#   sudo modprobe vcan
+#   sudo ip link add dev vcan0 type vcan
+#   sudo ip link set up vcan0
+can_bus_interfaces:
+  - vcan0
+heartbeat_period: 1
+# Empty disables DB logging for this emulator-only setup.
+database_url: ""
+# Semantic mapping from the generic emulator field names to node-specific names.
+mapping_path: /app/mappings
+webserver_socket:
+  enabled: true
+  host: 127.0.0.1
+  port: 8080
+  reconnect_period_ms: 3000

@@ -1,0 +1,10 @@
+can_bus_interfaces:
+  - can0
+heartbeat_period: 1
+database_url: postgres://postgres:ferroflow@127.0.0.1:5432/ferroflow
+mapping_path: /app/mappings
+webserver_socket:
+  enabled: false
+  host: 127.0.0.1
+  port: 8080
+  reconnect_period_ms: 3000
