@@ -1,4 +1,7 @@
-pub mod command;
+mod command;
+mod snapshots;
+
+pub use snapshots::{FieldValueSnapshot, NodeSnapshot, NodeTelemetrySnapshot};
 
 use std::{collections::HashMap, sync::Mutex};
 
@@ -101,7 +104,7 @@ impl<'a> NodeManager<'a> {
         let node = CanNode::new(registration_info);
 
         if node.node_registration_complete() {
-            self.can_nodes.insert(node_id, node);
+            self.complete_node_registration(node_id, node);
         } else {
             self.registering_nodes
                 .lock()
@@ -144,7 +147,7 @@ impl<'a> NodeManager<'a> {
                         node_id
                     )
                 })?;
-                self.can_nodes.insert(node_id, completed_node);
+                self.complete_node_registration(node_id, completed_node);
             }
             Ok(())
         } else {
@@ -182,7 +185,8 @@ impl<'a> NodeManager<'a> {
                         node_id
                     )
                 })?;
-                self.can_nodes.insert(node_id, completed_node);
+
+                self.complete_node_registration(node_id, completed_node);
             }
 
             Ok(())
@@ -257,7 +261,10 @@ impl<'a> NodeManager<'a> {
                 field_value: Self::can_data_value_to_json(value),
             };
             self.event_dispatcher
-                .dispatch(events::Event::NodeFieldUpdated(telemetry_log));
+                .dispatch(events::Event::NodeFieldUpdated(
+                    telemetry_log,
+                    events::NodeFieldUpdateSource::TelemetryUpdate,
+                ));
         }
 
         Ok(())
@@ -311,7 +318,10 @@ impl<'a> NodeManager<'a> {
         };
 
         self.event_dispatcher
-            .dispatch(events::Event::NodeFieldUpdated(telemetry_log));
+            .dispatch(events::Event::NodeFieldUpdated(
+                telemetry_log,
+                events::NodeFieldUpdateSource::FieldGetRes,
+            ));
 
         Ok(())
     }
@@ -372,18 +382,10 @@ impl<'a> NodeManager<'a> {
         &self.can_nodes
     }
 
-    fn can_data_value_to_json(value: CanDataValue) -> serde_json::Value {
-        match value {
-            CanDataValue::Float32(v) => serde_json::json!(v),
-            CanDataValue::Int32(v) => serde_json::json!(v),
-            CanDataValue::Int16(v) => serde_json::json!(v),
-            CanDataValue::Int8(v) => serde_json::json!(v),
-            CanDataValue::UInt32(v) => serde_json::json!(v),
-            CanDataValue::UInt16(v) => serde_json::json!(v),
-            CanDataValue::UInt8(v) => serde_json::json!(v),
-            CanDataValue::Boolean(v) => serde_json::json!(v),
-            CanDataValue::Raw(items) => serde_json::json!(items),
-        }
+    fn complete_node_registration(&self, node_id: u8, node: CanNode) {
+        self.can_nodes.insert(node_id, node);
+        self.event_dispatcher
+            .dispatch(events::Event::NodeListUpdated);
     }
 
     fn is_mapped_name(field_name: &str) -> bool {
@@ -955,7 +957,7 @@ mod tests {
         let mut logs = vec![];
         for evt in [evt1, evt2] {
             match evt {
-                Event::NodeFieldUpdated(log) => logs.push(log),
+                Event::NodeFieldUpdated(log, ..) => logs.push(log),
                 other => panic!("unexpected event: {other:?}"),
             }
         }

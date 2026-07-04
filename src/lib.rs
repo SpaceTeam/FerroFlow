@@ -48,6 +48,15 @@ pub fn run_with_dependencies(
             scope,
         );
 
+        if config.webserver_socket.enabled {
+            socket::spawn_webserver_socket_worker(
+                config.webserver_socket.clone(),
+                node_manager,
+                event_dispatcher,
+                scope,
+            );
+        }
+
         node_manager.start_node_registration();
 
         Ok(())

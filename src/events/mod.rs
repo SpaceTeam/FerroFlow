@@ -13,7 +13,8 @@ pub enum Event {
         id: CanMessageId,
         message: CanMessage,
     },
-    NodeFieldUpdated(crate::db::FieldLog),
+    NodeFieldUpdated(crate::db::FieldLog, NodeFieldUpdateSource),
+    NodeListUpdated,
     Shutdown,
     #[allow(unused)]
     SendCanMessage {
@@ -33,10 +34,18 @@ pub enum Event {
     AbortSequence,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum NodeFieldUpdateSource {
+    FieldGetRes,
+    ParameterSetConfirmation,
+    TelemetryUpdate,
+}
+
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub enum EventKind {
     CanMessageReceived,
     NodeFieldUpdated,
+    NodeListUpdated,
     Shutdown,
     SendCanMessage,
     RelayCanMessage,
@@ -47,7 +56,8 @@ impl From<Event> for EventKind {
     fn from(value: Event) -> Self {
         match value {
             Event::CanMessageReceived { .. } => EventKind::CanMessageReceived,
-            Event::NodeFieldUpdated(_) => EventKind::NodeFieldUpdated,
+            Event::NodeFieldUpdated(_, _) => EventKind::NodeFieldUpdated,
+            Event::NodeListUpdated => EventKind::NodeListUpdated,
             Event::Shutdown => EventKind::Shutdown,
             Event::SendCanMessage { .. } => EventKind::SendCanMessage,
             Event::RelayCanMessage { .. } => EventKind::RelayCanMessage,

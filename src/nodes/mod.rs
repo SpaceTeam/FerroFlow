@@ -4,7 +4,7 @@ mod can_node;
 pub mod mapping;
 mod node_manager;
 
-pub use node_manager::NodeManager;
+pub use node_manager::{FieldValueSnapshot, NodeManager, NodeSnapshot, NodeTelemetrySnapshot};
 use std::{
     sync::mpsc::{self, RecvTimeoutError},
     time::{Duration, Instant},
