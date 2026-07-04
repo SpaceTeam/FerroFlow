@@ -10,6 +10,27 @@ pub struct Config {
     pub heartbeat_period: u64,
     pub database_url: String,
     pub mapping_path: String,
+    #[serde(default)]
+    pub webserver_socket: WebserverSocketConfig,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct WebserverSocketConfig {
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
+    pub reconnect_period_ms: u64,
+}
+
+impl Default for WebserverSocketConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: "127.0.0.1".to_string(),
+            port: 8080,
+            reconnect_period_ms: 3000,
+        }
+    }
 }
 
 pub fn load_config(path: &str) -> Result<Config> {

@@ -2,7 +2,7 @@ mod common;
 
 use crate::common::ShutdownGuard;
 use chrono::{DateTime, Utc};
-use ferro_flow::config::Config;
+use ferro_flow::config::{Config, WebserverSocketConfig};
 use ferro_flow::nodes::mapping::Mapping;
 use ferro_flow::{events, nodes, run_with_dependencies};
 use liquidcan::payloads::CanDataType;
@@ -187,6 +187,7 @@ fn build_test_config(can_iface: &str) -> Config {
         heartbeat_period: 1,
         database_url: "".to_string(),
         mapping_path: "".to_string(),
+        webserver_socket: WebserverSocketConfig::default(),
     }
 }
 

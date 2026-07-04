@@ -39,7 +39,7 @@ pub fn spawn_logging_worker<'a>(
 
         loop {
             match rx.recv_timeout(flush_timeout) {
-                Ok(Event::NodeFieldUpdated(log)) => {
+                Ok(Event::NodeFieldUpdated(log, _)) => {
                     batch.push(log);
                     if batch.len() < batch_size_limit {
                         continue;

@@ -28,13 +28,16 @@ fn logging_worker_persists_events_to_timescaledb() {
         db::spawn_logging_worker(database_url.clone(), &event_dispatcher, scope)
             .expect("logging worker should start");
 
-        event_dispatcher.dispatch(events::Event::NodeFieldUpdated(db::FieldLog {
-            timestamp: Utc::now(),
-            node_id: 3,
-            field_id: 99,
-            field_name: "tank_pressure".into(),
-            field_value: json!(17.4),
-        }));
+        event_dispatcher.dispatch(events::Event::NodeFieldUpdated(
+            db::FieldLog {
+                timestamp: Utc::now(),
+                node_id: 3,
+                field_id: 99,
+                field_name: "tank_pressure".into(),
+                field_value: json!(17.4),
+            },
+            events::NodeFieldUpdateSource::TelemetryUpdate,
+        ));
 
         event_dispatcher.dispatch(events::Event::Shutdown);
     });
