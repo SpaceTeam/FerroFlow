@@ -1,4 +1,8 @@
-use std::{sync::mpsc, thread::Scope, time::Duration};
+use std::{
+    sync::mpsc,
+    thread::Scope,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -50,11 +54,50 @@ struct FieldInfoResponse {
     data_type: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ReadFieldRequest {
+    node_id: u8,
+
+    /// Field ID as provided by the node during registration.
+    #[serde(default)]
+    field_id: Option<u8>,
+
+    /// Telemetry or parameter name as provided by the node during registration.
+    #[serde(default)]
+    field_name: Option<String>,
+
+    /// How long to wait for the node's response. Defaults to one second.
+    #[serde(default = "default_read_timeout_ms")]
+    timeout_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct TelemetryNodeResponse {
+    node_id: u8,
+    device_name: String,
+    telemetry: Vec<FieldValueResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct FieldValueResponse {
+    id: u8,
+    name: String,
+    data_type: String,
+    timestamp_ms: Option<i64>,
+    value: Option<serde_json::Value>,
+}
+
+fn default_read_timeout_ms() -> u64 {
+    1_000
+}
+
 /// Spawns a small blocking HTTP server.
 ///
 /// Endpoints:
 /// - `GET /health` => "ok"
 /// - `GET /api/nodes` => JSON list of nodes and their parameter definitions
+/// - `GET /api/telemetry` => all cached telemetry values
+/// - `POST /api/fields/read` => request and wait for a field value by id or name
 /// - `POST /api/parameters/set` => set a parameter by id or name
 pub fn spawn_http_server_thread<'a>(
     node_manager: &'a NodeManager<'a>,
@@ -142,6 +185,124 @@ fn handle_request(node_manager: &NodeManager<'_>, mut request: tiny_http::Reques
                 .collect::<Vec<_>>();
 
             respond_json(request, StatusCode(200), &nodes)
+        }
+
+        (Method::Get, "/api/telemetry") => {
+            let mut nodes = node_manager
+                .get_nodes()
+                .iter()
+                .map(|entry| {
+                    let node_id = *entry.key();
+                    let node = entry.value();
+                    let mut telemetry = node
+                        .telemetry_fields
+                        .iter()
+                        .map(|(&id, info)| {
+                            let cached = node.values.get(&id);
+                            FieldValueResponse {
+                                id,
+                                name: info.name.clone(),
+                                data_type: format!("{:?}", info.data_type),
+                                timestamp_ms: cached
+                                    .as_ref()
+                                    .map(|value| value.value().0.timestamp_millis()),
+                                value: cached.as_ref().map(|value| {
+                                    NodeManager::can_data_value_to_json(value.value().1.clone())
+                                }),
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    telemetry.sort_by_key(|field| field.id);
+
+                    TelemetryNodeResponse {
+                        node_id,
+                        device_name: node.registration_info.device_name.clone(),
+                        telemetry,
+                    }
+                })
+                .collect::<Vec<_>>();
+            nodes.sort_by_key(|node| node.node_id);
+
+            respond_json(request, StatusCode(200), &nodes)
+        }
+
+        (Method::Post, "/api/fields/read") => {
+            let result: Result<FieldValueResponse> = (|| {
+                let body = read_body_as_string(&mut request)?;
+                let req: ReadFieldRequest = serde_json::from_str(&body)
+                    .with_context(|| format!("invalid JSON body: {body}"))?;
+
+                if req.timeout_ms > 30_000 {
+                    bail!("timeout_ms cannot exceed 30000");
+                }
+
+                let field_id = match (req.field_id, req.field_name.as_deref()) {
+                    (Some(id), _) => id,
+                    (None, Some(name)) => {
+                        node_manager.resolve_field_id_by_name(req.node_id, name)?
+                    }
+                    (None, None) => bail!("either 'field_id' or 'field_name' must be provided"),
+                };
+
+                let previous_timestamp = node_manager
+                    .get_field_value(req.node_id, field_id)?
+                    .map(|(timestamp, _)| timestamp);
+                node_manager.request_field(req.node_id, field_id)?;
+
+                let deadline = Instant::now() + Duration::from_millis(req.timeout_ms);
+                let (timestamp, value) = loop {
+                    if let Some((timestamp, value)) =
+                        node_manager.get_field_value(req.node_id, field_id)?
+                        && previous_timestamp.as_ref() != Some(&timestamp)
+                    {
+                        break (timestamp, value);
+                    }
+
+                    if Instant::now() >= deadline {
+                        bail!(
+                            "timed out waiting for node {} field {}",
+                            req.node_id,
+                            field_id
+                        );
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                };
+
+                let node = node_manager
+                    .get_nodes()
+                    .get(&req.node_id)
+                    .with_context(|| format!("node {} is no longer registered", req.node_id))?;
+                let info = node
+                    .telemetry_fields
+                    .get(&field_id)
+                    .or_else(|| node.parameter_fields.get(&field_id))
+                    .with_context(|| {
+                        format!(
+                            "field {} on node {} is no longer registered",
+                            field_id, req.node_id
+                        )
+                    })?;
+
+                Ok(FieldValueResponse {
+                    id: field_id,
+                    name: info.name.clone(),
+                    data_type: format!("{:?}", info.data_type),
+                    timestamp_ms: Some(timestamp.timestamp_millis()),
+                    value: Some(NodeManager::can_data_value_to_json(value)),
+                })
+            })();
+
+            match result {
+                Ok(value) => respond_json(request, StatusCode(200), &value),
+                Err(e) => respond_json(
+                    request,
+                    StatusCode(400),
+                    &ErrorResponse {
+                        ok: false,
+                        error: format!("{e:#}"),
+                    },
+                ),
+            }
         }
 
         (Method::Post, "/api/parameters/set") => {

@@ -142,7 +142,10 @@ fn log_can_rx(
     }
 }
 
-fn can_send_thread(sockets: Vec<(&str, Arc<CanFdSocket>)>, receiver: mpsc::Receiver<events::Event>) {
+fn can_send_thread(
+    sockets: Vec<(&str, Arc<CanFdSocket>)>,
+    receiver: mpsc::Receiver<events::Event>,
+) {
     while let Ok(event) = receiver.recv() {
         match event {
             Event::Shutdown => break,

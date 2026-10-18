@@ -395,6 +395,82 @@ impl<'a> NodeManager<'a> {
         );
     }
 
+    /// Resolve a telemetry or parameter field id by its registered name.
+    pub fn resolve_field_id_by_name(&self, node_id: u8, field_name: &str) -> Result<u8> {
+        let node = self.can_nodes.get(&node_id).with_context(|| {
+            format!(
+                "cannot resolve field name for node {} because it is not registered",
+                node_id
+            )
+        })?;
+
+        node.telemetry_fields
+            .iter()
+            .chain(node.parameter_fields.iter())
+            .find_map(|(&id, info)| (info.name == field_name).then_some(id))
+            .with_context(|| format!("node {} has no field with name '{}'", node_id, field_name))
+    }
+
+    /// Queue a LiquidCAN `FieldGetReq` for a registered field.
+    pub fn request_field(&self, node_id: u8, field_id: u8) -> Result<()> {
+        let node = self.can_nodes.get(&node_id).with_context(|| {
+            format!(
+                "cannot request field because node {} is not registered",
+                node_id
+            )
+        })?;
+
+        if !node.telemetry_fields.contains_key(&field_id)
+            && !node.parameter_fields.contains_key(&field_id)
+        {
+            bail!(
+                "cannot request field {} on node {} because no field definition exists",
+                field_id,
+                node_id
+            );
+        }
+        drop(node);
+
+        self.event_dispatcher
+            .dispatch(events::Event::SendCanMessage {
+                receiver_node_id: node_id,
+                message: CanMessage::FieldGetReq {
+                    payload: liquidcan::payloads::FieldGetReqPayload { field_id },
+                },
+            });
+
+        Ok(())
+    }
+
+    /// Return the most recently cached value and its timestamp for a field.
+    pub fn get_field_value(
+        &self,
+        node_id: u8,
+        field_id: u8,
+    ) -> Result<Option<(chrono::DateTime<Utc>, CanDataValue)>> {
+        let node = self.can_nodes.get(&node_id).with_context(|| {
+            format!(
+                "cannot read field because node {} is not registered",
+                node_id
+            )
+        })?;
+
+        if !node.telemetry_fields.contains_key(&field_id)
+            && !node.parameter_fields.contains_key(&field_id)
+        {
+            bail!(
+                "cannot read field {} on node {} because no field definition exists",
+                field_id,
+                node_id
+            );
+        }
+
+        Ok(node
+            .values
+            .get(&field_id)
+            .map(|entry| (entry.value().0, entry.value().1.clone())))
+    }
+
     /// Queue a LiquidCAN `ParameterSetReq` for the given node.
     pub fn set_parameter(
         &self,
@@ -455,12 +531,12 @@ impl<'a> NodeManager<'a> {
             if let Some(s) = v.as_str() {
                 let s = s.trim();
                 if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-                    return Ok(u64::from_str_radix(hex, 16)
-                        .with_context(|| format!("invalid hex integer '{s}'"))?);
+                    return u64::from_str_radix(hex, 16)
+                        .with_context(|| format!("invalid hex integer '{s}'"));
                 }
-                return Ok(s
+                return s
                     .parse::<u64>()
-                    .with_context(|| format!("invalid integer '{s}'"))?);
+                    .with_context(|| format!("invalid integer '{s}'"));
             }
             bail!("expected integer, got {v}");
         };
@@ -470,7 +546,7 @@ impl<'a> NodeManager<'a> {
                 return Ok(n);
             }
             if let Some(n) = v.as_u64() {
-                return Ok(i64::try_from(n).context("integer out of range")?);
+                return i64::try_from(n).context("integer out of range");
             }
             if let Some(s) = v.as_str() {
                 let s = s.trim();
@@ -482,9 +558,9 @@ impl<'a> NodeManager<'a> {
                     .context("integer out of range")?;
                     return Ok(n);
                 }
-                return Ok(s
+                return s
                     .parse::<i64>()
-                    .with_context(|| format!("invalid integer '{s}'"))?);
+                    .with_context(|| format!("invalid integer '{s}'"));
             }
             bail!("expected integer, got {v}");
         };
@@ -495,9 +571,9 @@ impl<'a> NodeManager<'a> {
             }
             if let Some(s) = v.as_str() {
                 let s = s.trim();
-                return Ok(s
+                return s
                     .parse::<f64>()
-                    .with_context(|| format!("invalid float '{s}'"))?);
+                    .with_context(|| format!("invalid float '{s}'"));
             }
             bail!("expected float, got {v}");
         };
@@ -571,7 +647,7 @@ impl<'a> NodeManager<'a> {
         }
     }
 
-    fn can_data_value_to_json(value: CanDataValue) -> serde_json::Value {
+    pub(crate) fn can_data_value_to_json(value: CanDataValue) -> serde_json::Value {
         match value {
             CanDataValue::Float32(v) => serde_json::json!(v),
             CanDataValue::Int32(v) => serde_json::json!(v),
