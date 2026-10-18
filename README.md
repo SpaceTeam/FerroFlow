@@ -30,6 +30,30 @@ ferroflow-vcan down vcan0
 ```
 
 
+## HTTP testing API
+
+Set `http_listen` in `config.yml` to enable the development HTTP server:
+
+```yaml
+http_listen: "127.0.0.1:8080"
+```
+
+The API provides:
+
+- `GET /health`
+- `GET /api/nodes`
+- `GET /api/telemetry`
+- `POST /api/fields/read` with `node_id` and either `field_id` or `field_name`
+- `POST /api/parameters/set` with `node_id`, `value`, and either `parameter_id` or `parameter_name`
+
+An interactive client is included:
+
+```bash
+cargo run --bin ff-http-cli -- --addr 127.0.0.1:8080
+```
+
+For example, `get-name 1 pressure` requests a fresh field value from node 1 and waits up to one second for its CAN response. The optional `timeout_ms` property on `/api/fields/read` can change that timeout up to 30 seconds.
+
 ## Development
 
 ### Running CI Checks
